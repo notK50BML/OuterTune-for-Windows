@@ -46,6 +46,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -1735,6 +1737,136 @@ private fun BackupSettings(settings: Settings, library: LibraryStore, libraryPat
     }
 }
 
+/**
+ * Cross-device sync: linking this computer to the user's other devices with a sync code, and
+ * syncing plays with them over WiFi - what makes their plays count here. Where "Count plays from
+ * other devices" used to be; that switch (the YouTube Music history) is kept here as the rough extra.
+ */
+@Composable
+private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
+    Section("Cross-device sync") {
+        Text(
+            "Shares plays between your own devices, so Stats counts what you listen to on each of them. " +
+                "Every play is matched by its song and the exact time it was played, so nothing is ever counted twice.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        val code = settings.playSyncCode
+        if (code.isBlank()) {
+            var entering by remember { mutableStateOf(false) }
+            var typed by remember { mutableStateOf("") }
+            SettingRow(
+                title = "Set up sync on this computer",
+                subtitle = "Makes a sync code to enter on your other devices.",
+                icon = OuterTuneIcons.libraryAdd,
+                onClick = {
+                    settings.playSyncCode = SyncCode.generate()
+                    settings.playSyncWifi = true
+                },
+            )
+            SettingRow(
+                title = "Enter a code from another device",
+                subtitle = "Links this computer to devices already syncing.",
+                icon = OuterTuneIcons.key,
+                onClick = { entering = !entering },
+            )
+            if (entering) {
+                val valid = SyncCode.normalize(typed)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 40.dp, bottom = 8.dp)) {
+                    OutlinedTextField(
+                        value = typed,
+                        onValueChange = { typed = it },
+                        singleLine = true,
+                        placeholder = { Text("e.g. K7QD-M2XP-9RFA") },
+                        isError = typed.length >= 12 && valid == null,
+                    )
+                    TextButton(
+                        enabled = valid != null,
+                        onClick = {
+                            settings.playSyncCode = valid.orEmpty()
+                            settings.playSyncWifi = true
+                            entering = false
+                            typed = ""
+                        },
+                    ) { Text("Link") }
+                }
+            }
+        } else {
+            val clipboard = LocalClipboardManager.current
+            var copied by remember { mutableStateOf(false) }
+            SettingRow(
+                title = code,
+                subtitle = if (copied) "Copied." else
+                    "Your sync code. Enter it on your other devices to link them; click to copy. Keep it to " +
+                        "yourself: anyone with it on your network could sync with you.",
+                icon = OuterTuneIcons.key,
+                onClick = {
+                    clipboard.setText(AnnotatedString(code))
+                    copied = true
+                },
+            )
+            SettingSwitch(
+                title = "Sync over WiFi",
+                subtitle = "Swaps plays with your other devices whenever they're on the same network with OuterTune open. " +
+                    "No account or server needed.",
+                checked = settings.playSyncWifi,
+                onCheckedChange = { settings.playSyncWifi = it },
+                icon = OuterTuneIcons.wifi,
+            )
+            if (settings.playSyncWifi) {
+                val status by (PlaySync.manager?.status ?: PlaySync.idle).collectAsState()
+                val last = status.last
+                val lastAt = status.lastAt
+                SettingRow(
+                    title = when {
+                        !status.running -> "Starting…"
+                        status.syncing -> "Syncing…"
+                        status.peers.isEmpty() -> "Looking for your other devices…"
+                        else -> "Found: ${status.peers.joinToString()}"
+                    },
+                    subtitle = when {
+                        status.error != null -> "Last try failed (${status.error}). Click to try again."
+                        last != null && lastAt != null -> "Synced ${java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                            .format(java.time.Instant.ofEpochMilli(lastAt).atZone(java.time.ZoneId.systemDefault()))} " +
+                            "with ${last.peer}: ${last.received} new plays here. Click to sync now."
+                        else -> "Click to sync now."
+                    },
+                    icon = OuterTuneIcons.refresh,
+                    onClick = { PlaySync.manager?.syncNow() },
+                )
+            }
+            var unlinking by remember { mutableStateOf(false) }
+            SettingRow(
+                title = if (unlinking) "Click again to unlink" else "Unlink this computer",
+                subtitle = "Stops syncing and forgets the code. Plays already here stay.",
+                icon = OuterTuneIcons.delete,
+                tint = MaterialTheme.colorScheme.error,
+                onClick = {
+                    if (unlinking) {
+                        settings.playSyncWifi = false
+                        settings.playSyncCode = ""
+                        unlinking = false
+                    } else {
+                        unlinking = true
+                    }
+                },
+            )
+        }
+        // Only while signed in: it reads the account's history.
+        if (signedIn) {
+            SettingSwitch(
+                title = "Count plays from YouTube Music history",
+                subtitle = "Adds songs from your YouTube Music history to Stats - about one play each, since that " +
+                    "history keeps no counts or times. A rough extra on top of sync, for devices that don't sync.",
+                checked = settings.statsIncludeRemote,
+                onCheckedChange = { settings.statsIncludeRemote = it },
+                icon = OuterTuneIcons.history,
+            )
+        }
+    }
+}
+
 @Composable
 private fun PrivacySettings(settings: Settings, library: LibraryStore, account: Account) {
     // Grouped the way the phone groups them: each kind of history owns its switch and its clear
@@ -1762,15 +1894,6 @@ private fun PrivacySettings(settings: Settings, library: LibraryStore, account: 
                 onCheckedChange = { settings.shareHistoryWithYtm = it },
                 icon = OuterTuneIcons.cast,
             )
-            SettingSwitch(
-                title = "Count plays from other devices",
-                subtitle = "Adds songs from your YouTube Music history to Stats - about one play each, since " +
-                    "that history keeps no counts or times. For another device's real plays, use Stats → " +
-                    "Add plays from another device.",
-                checked = settings.statsIncludeRemote,
-                onCheckedChange = { settings.statsIncludeRemote = it },
-                icon = OuterTuneIcons.history,
-            )
         }
         var clearingPlays by remember { mutableStateOf(false) }
         SettingRow(
@@ -1788,6 +1911,8 @@ private fun PrivacySettings(settings: Settings, library: LibraryStore, account: 
             },
         )
     }
+
+    PlaySyncSection(settings, signedIn)
 
     Section("Search history") {
         SettingSwitch(

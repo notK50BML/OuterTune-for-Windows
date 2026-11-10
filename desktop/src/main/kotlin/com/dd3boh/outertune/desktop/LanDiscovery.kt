@@ -48,7 +48,10 @@ data class DiscoveredHost(
  * frequently isolate clients, in which case nothing will ever be found and no retrying helps, which
  * is why [discover] surfaces an empty list rather than a spinner that never resolves.
  */
-class LanDiscovery {
+class LanDiscovery(
+    /** The DNS-SD type to advertise and browse - Listen together's by default; play sync has its own. */
+    private val serviceType: String = SERVICE_TYPE,
+) {
 
     private var instance: JmDNS? = null
 
@@ -80,7 +83,7 @@ class LanDiscovery {
     fun advertise(port: Int, displayName: String = deviceName()): Advertisement {
         val jmdns = jmdns() ?: return NoopAdvertisement
         return try {
-            val info = ServiceInfo.create(SERVICE_TYPE, displayName, port, "")
+            val info = ServiceInfo.create(serviceType, displayName, port, "")
             jmdns.registerService(info)
             object : Advertisement {
                 override val registeredName: String? get() = info.name
@@ -160,7 +163,7 @@ class LanDiscovery {
         }
 
         try {
-            jmdns.addServiceListener(SERVICE_TYPE, listener)
+            jmdns.addServiceListener(serviceType, listener)
         } catch (e: Exception) {
             close()
         }
@@ -168,7 +171,7 @@ class LanDiscovery {
         awaitClose {
             worker.cancel()
             events.close()
-            runCatching { jmdns.removeServiceListener(SERVICE_TYPE, listener) }
+            runCatching { jmdns.removeServiceListener(serviceType, listener) }
         }
     }
 

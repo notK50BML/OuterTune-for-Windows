@@ -911,6 +911,36 @@ class Database(file: File) {
         connection.createStatement().use { it.execute("VACUUM INTO '${target.absolutePath.replace("'", "''")}'") }
     }
 
+    /**
+     * Every play worth syncing (PlaySyncManager): not those of local files. Each counts as its song's
+     * full length, as Stats counts it here - the desktop keeps no listening time per play.
+     */
+    fun syncPlays(): List<SyncPlay> = synchronized(lock) {
+        connection.createStatement().use { st ->
+            st.executeQuery(
+                """
+                SELECT e.songId, e.playedAt, COALESCE(s.durationMs, 0)
+                FROM play_event e JOIN song s ON s.id = e.songId
+                WHERE e.songId NOT IN (SELECT songId FROM local_file)
+                """.trimIndent()
+            ).use { rs -> buildList { while (rs.next()) add(SyncPlay(rs.getString(1), rs.getLong(2), rs.getLong(3))) } }
+        }
+    }
+
+    /** Each song's length in milliseconds, where known. */
+    fun durations(ids: Collection<String>): Map<String, Long> = synchronized(lock) {
+        val out = HashMap<String, Long>()
+        ids.chunked(500).forEach { chunk ->
+            connection.prepareStatement(
+                "SELECT id, durationMs FROM song WHERE id IN (${chunk.joinToString(",") { "?" }})"
+            ).use { st ->
+                chunk.forEachIndexed { i, id -> st.setString(i + 1, id) }
+                st.executeQuery().use { rs -> while (rs.next()) out[rs.getString(1)] = rs.getLong(2) }
+            }
+        }
+        out
+    }
+
     /** Forgets every play: the recent list and the counts Stats is made of. Songs themselves stay. */
     fun clearHistory() = synchronized(lock) {
         connection.createStatement().use { st ->

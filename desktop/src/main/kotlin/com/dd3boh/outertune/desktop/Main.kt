@@ -700,6 +700,19 @@ internal fun App(
         listenTogether.attachPlayer(DesktopPlaybackBridge(player, playerQueue, library))
         onDispose { listenTogether.attachPlayer(null) }
     }
+    // Play sync over WiFi with the user's other devices, while the window is open and it is on and
+    // linked - see PlaySyncManager.
+    val playSync = remember {
+        PlaySyncManager(
+            LanDiscovery(PlaySyncManager.SERVICE_TYPE),
+            LibraryPlaySyncStore(library),
+            deviceName = { listenTogether.deviceName() },
+        ).also { PlaySync.manager = it }
+    }
+    DisposableEffect(playSync) { onDispose { playSync.stop(); PlaySync.manager = null } }
+    LaunchedEffect(settings.playSyncCode, settings.playSyncWifi) {
+        if (settings.playSyncCode.isNotBlank() && settings.playSyncWifi) playSync.start(settings.playSyncCode) else playSync.stop()
+    }
     LaunchedEffect(settings.listenTogetherOffsetMs) {
         listenTogether.offsetMs = settings.listenTogetherOffsetMs.toLong()
     }

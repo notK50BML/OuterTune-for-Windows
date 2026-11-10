@@ -492,6 +492,12 @@ class Settings(private val store: SettingsStore) {
      */
     var statsIncludeRemote by bool("stats.includeRemote", false)
 
+    /** The sync code linking this computer to the user's other devices (SyncCode), or empty when not linked. */
+    var playSyncCode by string("playSync.code", "")
+
+    /** Whether plays are synced over WiFi with the devices sharing [playSyncCode]. */
+    var playSyncWifi by bool("playSync.wifi", false)
+
     /**
      * The Stats page's chips, so it opens as it was left rather than on a month by plays every
      * time: the period, what the chart is ranked by, and how many songs it shows (see StatsPane).
