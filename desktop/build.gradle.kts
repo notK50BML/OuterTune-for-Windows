@@ -380,7 +380,7 @@ val appImage = tasks.register<Exec>("appImage") {
     args(
         "--type", "app-image",
         "--name", "OuterTune",
-        "--app-version", "0.3.0", // DesktopVersion.NUMERIC - digits only, as Windows requires
+        "--app-version", "0.5.0", // DesktopVersion.NUMERIC - digits only, as Windows requires
         "--vendor", "OuterTune Project",
         "--icon", icon.absolutePath,
         "--input", inDir.absolutePath,
@@ -439,7 +439,7 @@ tasks.register<Exec>("installer") {
     inputs.file(script)
     inputs.dir(appImageOut)
     // Named with the version, which is how the app's updater recognises it on a release.
-    outputs.file(out.resolve("OuterTune-setup-0.3.0.exe"))
+    outputs.file(out.resolve("OuterTune-setup-0.5.0.exe"))
     // Every file the installer ships, with its SHA-256 - so an update writes only what changed -
     // and the plain list of them, which each install leaves behind so the next one can remove
     // whatever it no longer ships. See packaging/OuterTune.iss.
@@ -490,9 +490,9 @@ tasks.register<Exec>("installer") {
         "/DFilesList=${filesList.absolutePath}",
         "/DManifest=${manifest.absolutePath}",
         // Shown in the installer and Windows' Programs list; free text, unlike --app-version.
-        "/DAppVersion=0.3b",
+        "/DAppVersion=0.5",
         // DesktopVersion.NUMERIC: the installer's file name carries it for the updater.
-        "/DAppNumeric=0.3.0",
+        "/DAppNumeric=0.5.0",
         script.absolutePath,
     )
 }

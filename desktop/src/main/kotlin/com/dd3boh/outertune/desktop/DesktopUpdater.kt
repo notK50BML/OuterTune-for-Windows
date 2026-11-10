@@ -63,7 +63,11 @@ object DesktopUpdater {
 
     val state = MutableStateFlow<State>(State.Idle)
 
-    private const val RELEASES_URL = "https://api.github.com/repos/notK50BML/OuterTune-for-Windows/releases?per_page=30"
+    /** Where Windows releases are published: this app's repo, then the Android app's, which carried the earlier ones. */
+    private val RELEASES_URLS = listOf(
+        "https://api.github.com/repos/notK50BML/OuterTune-for-Windows/releases?per_page=30",
+        "https://api.github.com/repos/notK50BML/OuterTune/releases?per_page=30",
+    )
 
     /** The installer, and nothing else: `OuterTune-setup-0.4.0.exe`. */
     private val ASSET = Regex("""^OuterTune-setup-(\d+)\.(\d+)\.(\d+)\.exe$""")
@@ -93,16 +97,30 @@ object DesktopUpdater {
     suspend fun check(): Update? = withContext(Dispatchers.IO) {
         state.value = State.Checking
         runCatching {
-            val body = http.newCall(
-                Request.Builder().url(RELEASES_URL)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", "OuterTune-desktop/${DesktopVersion.NAME}")
-                    .build()
-            ).execute().use { response ->
-                if (!response.isSuccessful) error("GitHub answered ${response.code}")
-                response.body.string()
+            val current = parseVersion(DesktopVersion.NUMERIC) ?: listOf(0, 0, 0)
+            // Both repositories: Windows releases are published from this app's own repo now, and
+            // earlier ones from the Android app's. Whichever has the newest installer wins. One that
+            // cannot be read (private, or GitHub briefly refusing) is skipped, not fatal.
+            var reached = 0
+            var lastError: String? = null
+            val found = RELEASES_URLS.mapNotNull { url ->
+                runCatching {
+                    http.newCall(
+                        Request.Builder().url(url)
+                            .header("Accept", "application/vnd.github+json")
+                            .header("User-Agent", "OuterTune-desktop/${DesktopVersion.NAME}")
+                            .build()
+                    ).execute().use { response ->
+                        if (!response.isSuccessful) error("GitHub answered ${response.code}")
+                        response.body.string()
+                    }
+                }.onFailure { lastError = it.message }.getOrNull()?.let { body ->
+                    reached++
+                    pickUpdate(body, current)
+                }
             }
-            pickUpdate(body, parseVersion(DesktopVersion.NUMERIC) ?: listOf(0, 0, 0))
+            if (reached == 0) error(lastError ?: "GitHub could not be reached")
+            found.maxWithOrNull { a, b -> compareVersions(a.version, b.version) }
         }.fold(
             onSuccess = { update ->
                 state.value = if (update != null) State.Available(update) else State.UpToDate
