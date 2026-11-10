@@ -80,6 +80,15 @@ object DesktopUpdater {
         "release-assets.githubusercontent.com",
     )
 
+    /**
+     * A beta's tag: a "b" (or "beta") straight after the version number - v0.5b-Windows, v0.5b2,
+     * v0.5-beta. Only right after a digit, so "Windows" or a "build" in the name is not taken for one.
+     * The phone's AppUpdater uses the same rule.
+     */
+    private val BETA_TAG = Regex("""(?i)\d[-.]?(?:b|beta)\d*(?![a-z])""")
+
+    fun isBeta(tagOrName: String): Boolean = BETA_TAG.containsMatchIn(tagOrName)
+
     private val folder: File get() = File(System.getProperty("java.io.tmpdir"), "OuterTune-update")
 
     private val http by lazy {
@@ -94,7 +103,8 @@ object DesktopUpdater {
         runCatching { folder.listFiles()?.forEach { it.delete() } }
     }
 
-    suspend fun check(): Update? = withContext(Dispatchers.IO) {
+    /** @param skipBetas pass over releases tagged as betas - see [isBeta]. */
+    suspend fun check(skipBetas: Boolean = false): Update? = withContext(Dispatchers.IO) {
         state.value = State.Checking
         runCatching {
             val current = parseVersion(DesktopVersion.NUMERIC) ?: listOf(0, 0, 0)
@@ -116,7 +126,7 @@ object DesktopUpdater {
                     }
                 }.onFailure { lastError = it.message }.getOrNull()?.let { body ->
                     reached++
-                    pickUpdate(body, current)
+                    pickUpdate(body, current, skipBetas)
                 }
             }
             if (reached == 0) error(lastError ?: "GitHub could not be reached")
@@ -204,13 +214,14 @@ object DesktopUpdater {
      * The newest release with an installer newer than [current], from GitHub's releases list -
      * pure, for testing. Drafts and prereleases are passed over, as on the phone.
      */
-    internal fun pickUpdate(releasesJson: String, current: List<Int>): Update? {
+    internal fun pickUpdate(releasesJson: String, current: List<Int>, skipBetas: Boolean = false): Update? {
         val releases = Json.parseToJsonElement(releasesJson) as? JsonArray ?: return null
         var best: Update? = null
         for (element in releases) {
             val release = element as? JsonObject ?: continue
             if ((release["draft"] as? JsonPrimitive)?.booleanOrNull == true) continue
             if ((release["prerelease"] as? JsonPrimitive)?.booleanOrNull == true) continue
+            if (skipBetas && listOf("tag_name", "name").any { isBeta((release[it] as? JsonPrimitive)?.content.orEmpty()) }) continue
             val name = ((release["name"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
                 ?: (release["tag_name"] as? JsonPrimitive)?.content.orEmpty()).removePrefix("v")
             val assets = release["assets"] as? JsonArray ?: continue

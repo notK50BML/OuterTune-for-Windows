@@ -990,7 +990,7 @@ internal fun App(
         val now = System.currentTimeMillis()
         if (now - (settings.updateLastCheck.toLongOrNull() ?: 0L) < UPDATE_CHECK_INTERVAL_MS) return@LaunchedEffect
         settings.updateLastCheck = now.toString()
-        val found = DesktopUpdater.check() ?: return@LaunchedEffect
+        val found = DesktopUpdater.check(skipBetas = settings.updateSkipBetas) ?: return@LaunchedEffect
         if (settings.updateAutoDownload) DesktopUpdater.download(found)
     }
 

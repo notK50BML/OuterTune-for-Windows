@@ -2072,7 +2072,7 @@ private fun UpdaterSettings(settings: Settings) {
                     is DesktopUpdater.State.Checking, is DesktopUpdater.State.Downloading -> Unit
                     else -> scope.launch {
                         settings.updateLastCheck = System.currentTimeMillis().toString()
-                        DesktopUpdater.check()
+                        DesktopUpdater.check(skipBetas = settings.updateSkipBetas)
                     }
                 }
             },
@@ -2092,6 +2092,17 @@ private fun UpdaterSettings(settings: Settings) {
             checked = settings.updateAutoDownload,
             onCheckedChange = { settings.updateAutoDownload = it },
             icon = OuterTuneIcons.download,
+        )
+        SettingSwitch(
+            title = "Skip beta releases",
+            subtitle = "Don't offer releases tagged as betas, with a b after the version (v0.5b-Windows).",
+            checked = settings.updateSkipBetas,
+            onCheckedChange = {
+                settings.updateSkipBetas = it
+                // A beta already offered should go (or one passed over appear) straight away.
+                scope.launch { DesktopUpdater.check(skipBetas = it) }
+            },
+            icon = OuterTuneIcons.check,
             divider = false,
         )
     }

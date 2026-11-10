@@ -553,6 +553,9 @@ class Settings(private val store: SettingsStore) {
     /** Download a new version as soon as it is found, ready to install - off, as on the phone. */
     var updateAutoDownload by bool("update.autoDownload", false)
 
+    /** Pass over beta releases - a "b" right after the version, as in v0.5b-Windows - as on the phone. */
+    var updateSkipBetas by bool("update.skipBetas", false)
+
     /** When the last check ran, in epoch milliseconds - so starting the app often is not a request each time. */
     var updateLastCheck by string("update.lastCheck", "0")
 
