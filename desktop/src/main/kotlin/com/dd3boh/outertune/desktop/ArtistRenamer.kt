@@ -8,6 +8,7 @@ package com.dd3boh.outertune.desktop
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateMapOf
 import com.zionhuang.innertube.YouTube
 import com.zionhuang.innertube.models.Artist
 import com.zionhuang.innertube.models.SongItem
@@ -37,6 +38,18 @@ object ArtistRenamer {
     var library: LibraryStore? = null
 
     private val checked = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Every name learned this session, by artist id - including artists the library has no row for,
+     * which [LibraryStore.renameArtist] cannot keep: one known only from the account's history (a
+     * song played on the phone) would otherwise stay under its old name in Stats for good. State, so
+     * a name learned while a screen is showing it is drawn at once.
+     */
+    val names = mutableStateMapOf<String, String>()
+
+    /** [artist]'s current name: learned this session, else the library's, else as credited. */
+    fun nameOf(artist: StoredArtist, index: CreditIndex): String =
+        names[artist.id] ?: index.names[artist.id] ?: artist.name.withoutTopic()
     private val queue = Channel<String>(Channel.UNLIMITED)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -55,7 +68,9 @@ object ArtistRenamer {
         if (!StoredArtist(id, title).linkable) return
         checked += id
         val name = title.withoutTopic()
-        if (name.isNotBlank()) runCatching { library?.renameArtist(id, name) }
+        if (name.isBlank()) return
+        names[id] = name
+        runCatching { library?.renameArtist(id, name) }
     }
 
     /** Checks [artists]' current names, each at most once a session. */
@@ -93,6 +108,13 @@ fun SongItem.shown(index: CreditIndex): SongItem {
 @Composable
 fun SongItem.shown(): SongItem = shown(LocalCredits.current)
 
-/** A library song's artists as shown - its credits under their current names. */
-fun StoredSong.shownArtists(index: CreditIndex): String =
-    index.songs[id]?.takeIf { it.isNotEmpty() }?.joinToString { it.name } ?: artists
+/**
+ * A song's artists as shown - its credits under their current names. A song the library does not
+ * have (one known only from the account's history) is shown through its own credits, renamed the
+ * same way, rather than the credit text it was published with.
+ */
+fun StoredSong.shownArtists(index: CreditIndex): String {
+    val credits = index.songs[id]?.takeIf { it.isNotEmpty() } ?: artistList
+    if (credits.isEmpty()) return artists
+    return credits.joinToString { ArtistRenamer.nameOf(it, index) }
+}

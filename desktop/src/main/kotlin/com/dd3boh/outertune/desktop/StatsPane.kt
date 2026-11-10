@@ -42,6 +42,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.TextButton
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,13 +138,16 @@ fun StatsPane(
     val limit = settings.statsSongLimit.takeIf { it in STATS_SONG_LIMITS } ?: STATS_DEFAULT_SONG_LIMIT
     val byTime = metric == StatsMetric.TimeListened
     var data by remember { mutableStateOf<StatsData?>(null) }
+    val scope = rememberCoroutineScope()
+    var merging by remember { mutableStateOf(false) }
+    var mergeResult by remember { mutableStateOf<ImportSummary?>(null) }
     // The history, read once each time Stats is opened with the setting on, then counted per period.
     val history by produceState(emptyList<HistoryPage.HistorySection>(), includeRemote) {
         value = if (includeRemote) withContext(Dispatchers.IO) { readHistory() } else emptyList()
     }
     // Re-read when the recent list changes too, so a song finishing while this is open is counted.
     val recent by library.recentlyPlayed.collectAsState()
-    LaunchedEffect(period, metric, limit, recent, history) {
+    LaunchedEffect(period, metric, limit, recent, history, mergeResult) {
         data = withContext(Dispatchers.IO) {
             val since = period.sinceMs()
             val remote = if (history.isEmpty()) emptyMap() else HistoryTally.tally(history, period.days)
@@ -189,10 +195,36 @@ fun StatsPane(
                     )
                 }
             }
+            // Another device's plays, merged in for good - the only way the phone's real play count
+            // gets here: the account's history keeps each song once, with no count and no time.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                TextButton(
+                    enabled = !merging,
+                    onClick = {
+                        scope.launch {
+                            val file = FilePicker.pickFile("Choose a backup from your phone or another computer", "OuterTune backup", "*.backup;*.zip")
+                                ?: return@launch
+                            merging = true
+                            mergeResult = BackupImport.mergePlaysFrom(file, library)
+                            merging = false
+                        }
+                    },
+                ) { Text(if (merging) "Adding plays…" else "Add plays from another device…") }
+                mergeResult?.let {
+                    Text(
+                        it.describe(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (it.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         val stats = data
         if (stats == null) return@LazyColumn
+        // Current names for every artist shown, top songs' credits included: one known only from the
+        // history is not in the library, so nothing else would ever look it up.
+        ArtistRenamer.check(stats.artists.map { it.artist } + stats.songs.flatMap { it.song.artistList })
         if (stats.totals.plays == 0) {
             item {
                 Box(modifier = Modifier.fillMaxWidth().padding(64.dp), contentAlignment = Alignment.Center) {
@@ -235,7 +267,12 @@ fun StatsPane(
                         ) {
                             ArtistAvatar(artist, size = 96.dp)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            Text(
+                                ArtistRenamer.nameOf(artist, LocalCredits.current),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
                             Text(
                                 if (byTime) formatListening(listenedMs) else plays(plays),
                                 style = MaterialTheme.typography.bodySmall,

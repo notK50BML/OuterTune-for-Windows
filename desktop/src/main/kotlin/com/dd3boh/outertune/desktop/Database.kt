@@ -375,6 +375,14 @@ class Database(file: File) {
                     if (!has) st.executeUpdate("ALTER TABLE song ADD COLUMN albumId TEXT NOT NULL DEFAULT ''")
                 }
             }
+            if (current < 16) {
+                connection.createStatement().use { st ->
+                    // A play is its song and its instant - what a merge checks every incoming play
+                    // against (see importPlays). Without this a phone's tens of thousands of plays
+                    // were each a scan of every play with the same timestamp range.
+                    st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_play_event_song_at ON play_event(songId, playedAt)")
+                }
+            }
             connection.createStatement().use { it.executeUpdate("PRAGMA user_version=$SCHEMA_VERSION") }
             connection.commit()
         } catch (e: Exception) {
@@ -1675,7 +1683,7 @@ class Database(file: File) {
 
     companion object {
         /** Bumped whenever [migrate] gains a step. */
-        const val SCHEMA_VERSION = 15
+        const val SCHEMA_VERSION = 16
 
         fun defaultFile(): File = File(defaultDataDirectory(), "library.db")
     }

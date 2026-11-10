@@ -26,11 +26,21 @@ data class ImportSummary(
     val restoreStaged: Boolean = false,
     /** The file a desktop backup was written to. */
     val exported: String? = null,
+    /** Only plays were merged - see BackupImport.mergePlaysFrom. */
+    val playsOnly: Boolean = false,
 ) {
     val failed: Boolean get() = error != null
 
     fun describe(): String = when {
         error != null -> error
+        playsOnly -> when {
+            plays == 0 -> "Nothing new - every play in that backup is already counted here."
+            else -> buildString {
+                append("Added $plays ${if (plays == 1) "play" else "plays"}.")
+                if (songs > 0) append(" $songs ${if (songs == 1) "song was" else "songs were"} new to this computer.")
+                append(" Plays already here were skipped, so nothing is counted twice.")
+            }
+        }
         exported != null -> "Backed up to $exported."
         restoreStaged -> "Restored. Restart OuterTune to load the backup; the current library is kept as library-before-restore.db."
         songs == 0 && playlists == 0 -> "Nothing to import - the backup held no songs or playlists."
@@ -90,6 +100,128 @@ object BackupImport {
                 extracted.delete()
             }
         }
+
+    /**
+     * Adds another device's plays to this library's - a phone backup or another computer's - and
+     * nothing else: no like, playlist or setting is touched.
+     *
+     * **Never counts a play twice.** A play is its song and the exact instant it was recorded, and
+     * one already here is skipped ([Database.importPlays]). Both apps keep that instant as it was
+     * first written, through every merge, so merging the same backup again, or a phone backup that
+     * itself holds plays merged from this computer, adds nothing it already has.
+     *
+     * Songs this library already has keep their own details; only songs new to it are added, with
+     * their credits and length so they count towards listening time. Local files are left out, as
+     * there is nothing here for their plays to point at.
+     */
+    suspend fun mergePlaysFrom(backup: File, library: LibraryStore): ImportSummary = withContext(Dispatchers.IO) {
+        val extracted = runCatching { extractDatabase(backup) }.getOrElse {
+            return@withContext ImportSummary(error = "Could not read the backup: ${it.message}")
+        } ?: return@withContext ImportSummary(error = "That file does not contain an OuterTune library.")
+        try {
+            openReadOnly(extracted).use { connection ->
+                val desktop = hasTable(connection, "play_event")
+                val (songs, plays) = if (desktop) readDesktopPlays(connection) else readPhonePlays(connection)
+                var added = 0
+                val playsAdded = library.database.transaction {
+                    songs.forEach { song ->
+                        if (library.database.song(song.first.id) == null) {
+                            library.database.upsertSong(song.first, durationMs = song.second)
+                            added++
+                        }
+                    }
+                    library.database.importPlays(plays)
+                }
+                library.refreshAll()
+                ImportSummary(songs = added, plays = playsAdded, playsOnly = true)
+            }
+        } catch (e: Exception) {
+            ImportSummary(error = "Could not read the backup's database: ${e.message}")
+        } finally {
+            extracted.delete()
+        }
+    }
+
+    private fun hasTable(connection: Connection, name: String): Boolean =
+        connection.prepareStatement("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").use { st ->
+            st.setString(1, name)
+            st.executeQuery().use { it.next() }
+        }
+
+    /** A phone backup's played songs (with their lengths) and its plays. */
+    private fun readPhonePlays(connection: Connection): Pair<List<Pair<StoredSong, Long>>, List<Pair<String, Long>>> {
+        val credits = readCredits(connection)
+        val hasDuration = connection.createStatement().use { st ->
+            st.executeQuery("PRAGMA table_info(song)").use { rs ->
+                generateSequence { if (rs.next()) rs.getString("name") else null }.any { it == "duration" }
+            }
+        }
+        val songs = HashMap<String, Pair<StoredSong, Long>>()
+        connection.prepareStatement(
+            "SELECT id, title, thumbnailUrl, isLocal${if (hasDuration) ", duration" else ""} FROM song " +
+                "WHERE id IN (SELECT DISTINCT songId FROM event)"
+        ).use { st ->
+            st.executeQuery().use { rows ->
+                while (rows.next()) {
+                    if (rows.getInt("isLocal") != 0) continue
+                    val id = rows.getString("id") ?: continue
+                    val artists = credits[id].orEmpty()
+                    val song = StoredSong(
+                        id = id,
+                        title = rows.getString("title") ?: continue,
+                        artists = artists.joinToString { it.name },
+                        thumbnail = rows.getString("thumbnailUrl").orEmpty(),
+                        artistList = artists,
+                    )
+                    // Seconds on the phone.
+                    songs[id] = song to if (hasDuration) rows.getLong("duration").coerceAtLeast(0) * 1000L else 0L
+                }
+            }
+        }
+        val plays = connection.prepareStatement("SELECT songId, timestamp FROM event").use { st ->
+            st.executeQuery().use { rows ->
+                buildList { while (rows.next()) rows.getString(1)?.takeIf { it in songs }?.let { add(it to rows.getLong(2)) } }
+            }
+        }
+        return songs.values.toList() to plays
+    }
+
+    /** Another computer's library: its played songs (not its local files) and its plays. */
+    private fun readDesktopPlays(connection: Connection): Pair<List<Pair<StoredSong, Long>>, List<Pair<String, Long>>> {
+        val credits = HashMap<String, MutableList<StoredArtist>>()
+        connection.createStatement().use { st ->
+            st.executeQuery(
+                "SELECT sa.songId, a.id, a.name FROM song_artist sa JOIN artist a ON a.id = sa.artistId ORDER BY sa.songId, sa.position"
+            ).use { rs -> while (rs.next()) credits.getOrPut(rs.getString(1)) { mutableListOf() } += StoredArtist(rs.getString(2), rs.getString(3)) }
+        }
+        val local = if (hasTable(connection, "local_file")) connection.createStatement().use { st ->
+            st.executeQuery("SELECT songId FROM local_file").use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+        } else emptySet()
+        val songs = HashMap<String, Pair<StoredSong, Long>>()
+        connection.createStatement().use { st ->
+            st.executeQuery(
+                "SELECT id, title, artists, thumbnail, durationMs FROM song WHERE id IN (SELECT DISTINCT songId FROM play_event)"
+            ).use { rows ->
+                while (rows.next()) {
+                    val id = rows.getString(1) ?: continue
+                    if (id in local) continue
+                    songs[id] = StoredSong(
+                        id = id,
+                        title = rows.getString(2) ?: continue,
+                        artists = rows.getString(3).orEmpty(),
+                        thumbnail = rows.getString(4).orEmpty(),
+                        artistList = credits[id].orEmpty(),
+                    ) to rows.getLong(5)
+                }
+            }
+        }
+        val plays = connection.createStatement().use { st ->
+            st.executeQuery("SELECT songId, playedAt FROM play_event").use { rows ->
+                buildList { while (rows.next()) rows.getString(1)?.takeIf { it in songs }?.let { add(it to rows.getLong(2)) } }
+            }
+        }
+        return songs.values.toList() to plays
+    }
 
     /**
      * Fills in album names and ids from a phone backup, and nothing else - for a library imported

@@ -1764,7 +1764,9 @@ private fun PrivacySettings(settings: Settings, library: LibraryStore, account: 
             )
             SettingSwitch(
                 title = "Count plays from other devices",
-                subtitle = "Adds plays from your YouTube Music history to Stats.",
+                subtitle = "Adds songs from your YouTube Music history to Stats - about one play each, since " +
+                    "that history keeps no counts or times. For another device's real plays, use Stats → " +
+                    "Add plays from another device.",
                 checked = settings.statsIncludeRemote,
                 onCheckedChange = { settings.statsIncludeRemote = it },
                 icon = OuterTuneIcons.history,
