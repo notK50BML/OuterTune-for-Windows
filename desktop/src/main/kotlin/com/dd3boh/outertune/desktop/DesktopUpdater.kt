@@ -203,8 +203,14 @@ object DesktopUpdater {
      */
     fun install(installer: File): Boolean {
         if (!installer.isFile || !ASSET.matches(installer.name) || !isWindowsExecutable(installer)) return false
+        // The same mode as the install being replaced: one for all users lives under Program Files,
+        // and updating it per-user would leave a second copy instead (Windows asks for admin then).
+        val programFiles = listOfNotNull(System.getenv("ProgramFiles"), System.getenv("ProgramW6432"))
+            .map { File(it).absolutePath.lowercase() }
+        val here = File(System.getProperty("jpackage.app-path") ?: System.getProperty("user.dir").orEmpty()).absolutePath.lowercase()
+        val mode = if (programFiles.any { here.startsWith(it) }) "/ALLUSERS" else "/CURRENTUSER"
         return runCatching {
-            ProcessBuilder(installer.absolutePath, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS")
+            ProcessBuilder(installer.absolutePath, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", mode)
                 .directory(installer.parentFile)
                 .start()
         }.isSuccess

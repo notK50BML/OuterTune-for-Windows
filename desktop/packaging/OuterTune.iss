@@ -40,7 +40,11 @@ DefaultDirName={autopf}\OuterTune
 DefaultGroupName=OuterTune
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+; "Install for me only" or "for all users" (admin) - asked every time it runs interactively, even over
+; an existing install, rather than silently reusing the earlier choice. The app's own silent updates
+; pass /CURRENTUSER or /ALLUSERS to match the install they replace (see DesktopUpdater.install).
+PrivilegesRequiredOverridesAllowed=dialog commandline
+UsePreviousPrivileges=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutDir}
@@ -51,8 +55,10 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 LZMANumBlockThreads=4
 WizardStyle=modern
-CloseApplications=yes
-RestartApplications=yes
+; Not Windows' Restart Manager: it asks the window to close, and OuterTune can keep running in the
+; tray, so it never exited and every attempt failed. PrepareToInstall closes it instead.
+CloseApplications=no
+RestartApplications=no
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -104,6 +110,24 @@ begin
     Result := True
   else
     Result := CompareText(GetSHA256OfFile(Target), Sha256) <> 0;
+end;
+
+{ Closes a running OuterTune before files are replaced: asked politely, then, if it is still there a
+  few seconds later (it may only have gone to the tray), ended. Its library is SQLite with a
+  write-ahead log, which a hard stop cannot corrupt. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM OuterTune.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  { 128 means "not running": nothing more to do. }
+  if ResultCode <> 128 then
+  begin
+    Sleep(3000);
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM OuterTune.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1000);
+  end;
 end;
 
 procedure InitializeWizard;
