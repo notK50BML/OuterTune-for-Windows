@@ -1,0 +1,354 @@
+# OuterTune desktop — where this is up to
+
+Written for whoever picks this up next, in another session or another account.
+
+## What exists
+
+A Windows desktop client (`:desktop`) that searches YouTube Music, plays songs, and remembers what
+you played and liked. It runs with:
+
+```
+gradlew :desktop:run
+```
+
+Working: search, play, pause/resume, stop, next/previous, seek, shuffle, repeat (off/all/one),
+album art, liked songs, recently played, keyboard control (space, arrows, media keys), sign-in (four
+routes, see SIGN-IN.md), a signed-in home feed and the account's saved playlists, album and artist
+pages, downloads, local playlists, importing a phone backup, word-by-word lyrics, a full settings
+screen, dynamic theming from the cover, a twelve-band equaliser with AutoEQ/compressor/tempo-pitch,
+a sleep timer, Discord rich presence, and Listen Together with a phone or another desktop build on
+the same network. See `PARITY.md` for the full feature-by-feature accounting
+against the Android app - this paragraph is the summary, not the source of truth.
+
+**Nothing native is involved in playback.** No VLC, no GStreamer, no embedded browser.
+
+## The four things worth knowing before changing anything
+
+These were each established by running something rather than by reasoning, and two of them
+overturned an earlier conclusion I had stated confidently and wrongly.
+
+**1. No browser is needed.** An earlier spike concluded that every player client failed without a
+PoToken, so a desktop build would have to embed a browser to run BotGuard. That was wrong. The spike
+had never set `YouTube.locale` or `visitorData`, both of which `App.onCreate` sets on Android;
+without them YouTube answers `400 INVALID_ARGUMENT` and refuses players with "Video unavailable",
+which reads exactly like a token refusal. With them set, four clients hand over direct stream URLs.
+See `StackProbe`.
+
+**2. One client is not enough.** googlevideo issues a perfectly well-formed URL and then answers 403
+when it is fetched, and which client a given track will serve varies by track. `DesktopPlayer` tries
+four in order. The probes missed this entirely because they only ever ran against one hardcoded
+video — a real trap, and worth remembering when adding any new probe.
+
+**3. The container was the obstacle, not the codec.** Everything YouTube serves is *fragmented* MP4,
+whose samples live in `moof`/`trun` boxes rather than the `moov` sample table an ordinary reader
+walks. A plain MP4 reader parses the metadata perfectly and then finds zero frames. mp4parser reads
+the fragments, jaad decodes the AAC, both in pure Java. See `FragmentedMp4Probe`.
+
+**4. Correct output can still be described incorrectly.** jaad emits big-endian PCM. The first
+version of this wrote a WAV declaring little-endian and it played as static — correct data, lying
+header. Frame counts and byte totals cannot catch that, which is why `FragmentedMp4Probe` now
+measures whether the signal actually looks like audio (mean step between samples: small for music,
+huge for noise). Nothing in `DesktopPlayer` assumes an output format; it all comes from the
+decoder's first frame.
+
+## Deliberate trades, not oversights
+
+**A song is fetched in full before it plays.** That costs a second or two on a big track. It buys
+two things: once audio starts there is no network left to fail, so a mid-song 403 cannot happen; and
+every AAC frame is in memory at a fixed 1024 samples each, so **seeking is arithmetic** rather than a
+new range request. Streaming playback would remove the wait and give up both. Do it deliberately or
+not at all.
+
+The cost only really bit at track boundaries, and that part is now paid in advance:
+`DesktopPlayer.prefetch` fetches the next song while the current one plays, so the download is not
+what a listener hears between tracks. It is held as the in-flight `Deferred` rather than as bytes,
+so arriving early waits for the existing fetch instead of racing a second one, and it deliberately
+waits for the current track to reach `Playing` first - two whole-song downloads sharing a connection
+would make every track start slower to make the gap after it shorter. `QueueState.upcoming` decides
+what to fetch and mirrors `next()` branch for branch, which is what `UpcomingTrackTest` is for: name
+the wrong song and nothing breaks, the prefetch just never helps.
+
+**The library is a text file.** `LibraryStore` keeps recently-played and liked songs as TSV. This is
+a placeholder with a narrow surface, not an answer — choosing between Room-KMP and SQLDelight has
+consequences for migrations, threading, and how much of the Android data layer can eventually be
+shared, and that decision should not be made as a side effect of wanting a recently-played list. It
+holds everything in memory and rewrites on every change: fine for hundreds of songs, wrong for
+thousands.
+
+**No Compose Multiplatform Gradle plugin.** Its releases track a Kotlin version behind this
+project's, so the artifacts are taken directly and the compose compiler plugin `:app` already uses
+does the real work. The cost is that Skiko, the native renderer, has to be named explicitly — omit
+it and the window opens and immediately dies on a missing `skiko-windows-x64.dll`.
+
+## Size
+
+`gradlew :desktop:sizeReport` prints it. Currently **56.5 MB of jars**, of which 9.6 MB is Skiko —
+the floor while the UI is Compose, and per-platform, so a Windows build carries only the Windows
+renderer. The next-largest single addition is `:kizzy` (Discord rich presence): not the module
+itself, which is a small websocket client, but its own dependency tree - ktor's content-negotiation,
+encoding and kotlinx-json serialization modules, none of which anything else here already pulled in.
+Shipping the jar keeps the total close to this (less minified); bundling a trimmed runtime with
+`jlink` adds roughly 40 MB on top. A full untrimmed JRE is what produces the 100 MB+ builds seen
+elsewhere, and is the thing to avoid.
+
+## What is genuinely missing
+
+- ~~**Signing in to YouTube Music.**~~ Done - Firefox, a `cookies.txt` file, or pasting. See
+  SIGN-IN.md for why it is a cookie rather than a token, and what would have to be true for device
+  OAuth to replace it.
+- ~~**The account is signed in but nothing uses it yet.**~~ Done - the home feed, the account's own
+  saved playlists, and library-song lookups all use it now.
+- **`DATASYNC_ID`.** It comes from JavaScript on the page, so the desktop has no way to read it. On a
+  Google account carrying several YouTube channels, the default channel is used. Degraded, not
+  broken, and worth remembering before chasing a bug report about the wrong library appearing.
+- **The Android player layout.** `Player.kt` is 1754 lines with 108 Android imports, and reaches for
+  `LocalPlayerConnection` (MediaController), `rememberPreference` (DataStore), haptics and window
+  insets throughout. The liquid/ferrofluid background is `android.graphics.RuntimeShader`, which does
+  not exist off Android — Skiko has `RuntimeEffect` and AGSL is SkSL-derived, so the shader itself
+  could be ported, but not by copying the file. Recreating the layout is realistic; copying it is
+  not.
+- ~~**Listen Together.**~~ Done - `Protocol` through `FollowerSession` ported verbatim (they never
+  depended on Android), `LanDiscovery` rewritten against jmDNS. See `ListenTogetherManager.kt`.
+
+## The pattern to keep
+
+Every bug in this module was found by someone actually using it, not by the checks that "passed".
+Static that decoded to exactly the right byte count. A 403 the probes never saw because they used
+one video. A pause that deleted the song because writes to a stopped line do not block on Windows.
+Verify the experience, not just the mechanism.
+
+## Where it was heading next
+
+In the order last discussed:
+
+1. ~~**UI**~~ - recreated: full-window player, home feed, album/artist pages, settings, lyrics.
+2. **Queue refinements** — drag-to-reorder is done, for both the queue and the playlist editor.
+   Save-as-playlist and queue persistence across restarts are not built.
+3. ~~**Visualiser and EQ**~~ - both done, see below.
+4. ~~**Discord rich presence**~~ - done, see `DiscordPresence.kt`. `:kizzy` is `kotlin("jvm")` with
+   no Android dependency, so it is used as-is rather than ported.
+
+## Storage
+
+`Database.kt` - SQLite through the JDBC driver, with the SQL written out rather than generated. No
+Gradle plugin and no code generator, for the same reason this module takes Compose as artifacts: both
+pin versions that drift against the Kotlin this project builds with, and neither earns that for a
+schema this size. SQLite specifically because the Android side is already SQLite, so a schema and a
+query mean the same thing there.
+
+The published sqlite-jdbc jar carries native binaries for eleven platforms. `fatJar` keeps only the
+host's, which is the difference between +2.5MB and +14MB.
+
+Things worth not undoing:
+
+- **One connection, one lock.** Several connections mean a write in one is invisible to a read
+  already in flight in another, and the failure is a lock timeout under exactly the conditions
+  hardest to reproduce. Reentrant, and `transaction` counts its depth so a nested call joins the
+  outer one instead of committing it early.
+- **`user_version`, not a migrations table.** Already there, atomic with the transaction that sets
+  it, and cannot itself need migrating. Each step is written to be safe to re-run, because a
+  migration that fails halfway leaves the version unchanged and will be attempted again.
+- **An upsert never blanks what it does not know.** A song re-encountered from a sparse source - a
+  queue entry, a search result - would otherwise erase a cover a richer source had supplied.
+- **Positions are renumbered after a removal.** Leaving a hole reads fine in order, so it looks
+  correct, but the next insert is computed from `MAX(position)` and the gap grows.
+
+An existing text-file library is imported once on first run and the files renamed rather than
+deleted, so a failed import can be looked at and a second run cannot duplicate anything.
+
+## Playlists
+
+Create, rename, delete, add, remove, reorder - all persisted. Reordering is a drag by handle, the
+same gesture the queue uses and for the same reasons: a handle rather than the whole row, since the
+row is already a click target for playing the song; stepped a whole row at a time so the list
+settles between moves rather than thrashing on a boundary; and keyed by song id so a row follows its
+song across a reorder instead of having the drag cancelled by its own first step.
+
+One difference from the queue worth knowing. The queue's order lives in a StateFlow and updates
+synchronously, so the next drag event always sees the new order. A playlist's order goes through the
+database and comes back via `refreshAll`, so a fast drag can in principle issue a step against a
+list one frame stale. The step target is coerced against the list the gesture can actually see,
+which keeps the tracked index and the list from disagreeing - but it is the reason that coerce is
+there, rather than belt and braces.
+
+`reorderPlaylist` deletes and re-inserts inside one transaction rather than updating positions one
+at a time, because the song is part of a unique constraint and the position is not - moving one song
+would collide with whatever currently holds its destination.
+
+## The equaliser
+
+`Equalizer.kt` - twelve peaking biquads, applied to the decoded PCM in place immediately before it
+is written to the output line. That is not a design preference: Java Sound has no effect chain, so
+between the decoder and the write is the only place audio can be shaped at all. It is a real
+implementation rather than a binding to something the platform provides, which is what Android's
+`audiofx.Equalizer` is.
+
+Applied *before* the visualiser measures the signal, which is the only arrangement that is not
+confusing - boosting the bass should move the bass bars.
+
+Three things it would be easy to get wrong, each with a test:
+
+- **Every channel needs its own filters.** A biquad remembers two input and two output samples, so
+  running one filter across an interleaved stream feeds left's history into right's output and back.
+  That is not a subtle degradation, it is a comb filter smeared across the stereo image. The test
+  feeds a tone to one channel only and fails if the silent one comes out loud.
+- **Byte order applies on the way out too.** The decoder returns big-endian; reading one way and
+  writing the other is not an error, it is noise.
+- **Clamp, do not wrap.** A boosted band can exceed full scale, and an integer that overflows goes
+  from loudest positive to loudest negative - heard as a crack, not as distortion.
+
+Band centres match the Android app's `EqualizerSettings.DEFAULT_FREQUENCIES` exactly when the bank
+holds this app's own twelve, so a set of gains means the same thing on both.
+
+### Band shapes
+
+`EqBand.type` is `PEAKING`, `LOW_SHELF` or `HIGH_SHELF`. Peaking alone was enough while every band
+came from the twelve-slider layout; it is not enough for an AutoEQ correction, which almost always
+opens with a low shelf and closes with a high one - a headphone's error at the extremes is a tilt
+across a region, not a bump at a frequency, and approximating a shelf with a peaking filter gets the
+centre right and then falls away exactly where the correction was supposed to keep going.
+
+### The response graph
+
+`EqResponse.kt` evaluates the bank's transfer function on the unit circle; `EqGraph.kt` draws it,
+coloured warm-to-cool along the frequency axis. It is deliberately *not* a curve drawn through the
+slider tops: the bands overlap, so two neighbouring +6dB sliders make one large hump rather than two
+small ones, and only the real combined response shows that. One test puts a tone through the actual
+`Equalizer` and asserts the graph agrees within 1dB, which is what stops the two drifting apart.
+
+### AutoEQ
+
+`AutoEq.kt` queries oratory1990's measurements from the AutoEq repository through GitHub's contents
+API and parses `ParametricEQ.txt`. The parser is deliberately identical to the Android app's
+`utils/AutoEqRepository.kt`, so the same headphone loads the same numbers on both; only the HTTP
+client and JSON parser differ.
+
+Two things the tests pin down, both of which are ways to be wrong quietly:
+
+- **The preamp line is not folded into the bands.** It is one global attenuation. Subtracting it from
+  every band's gain does not move the curve down - a peaking filter's gain only acts around its own
+  centre, so every band AutoEQ specified at 0dB becomes a real cut and the result is a comb of dips.
+  The Android side made this mistake and corrected it.
+- **Pass filters are dropped, not read as peaking.** That would put a bump exactly where the file
+  asked for a rolloff.
+
+Directory listings are cached for the session. Search fires 400ms after typing stops, because each
+query is up to three requests and an unauthenticated GitHub rate limit does not survive one
+headphone name typed at speed.
+
+### Dynamics and time
+
+`Compressor.kt` is a port of the app's `audio/Compressor.kt`, unchanged - pure Kotlin, so it needed
+nothing. All five controls are exposed plus a gain reduction meter, because threshold and ratio state
+a rule and only the meter shows that rule's effect on this track.
+
+`TimeStretch.kt` is tempo and pitch, independently: WSOLA to change duration without touching pitch,
+then cubic resampling by the pitch ratio, with the stretch pre-divided so tempo lands where asked.
+
+Two bugs in it were found by measuring the output, not by reading the code, and both would have been
+easy to talk oneself out of:
+
+- The similarity search scanned left to right and kept the first maximum. A periodic signal matches
+  every period, so a search window a few periods wide has many *equal* optima and the leftmost won
+  every time - pulling the analysis position back by nearly the search radius per frame. 1.5x came
+  out at 1.04x. It now searches outward from centre so ties resolve to the smallest nudge.
+- The analysis grid advanced from the *chosen* position rather than its own fixed grid, so nudges
+  accumulated. That put 1.5x at 2.02x and half speed at forty-four times the audio.
+
+Order in the pipeline is equaliser, then compressor, then stretcher. The compressor is after the
+equaliser so it reacts to the tone that will be heard, and before the stretcher because its attack
+and release are milliseconds of *music* - after it, a 10ms attack would cover 15ms of song at 1.5x.
+
+Position reporting is scaled by tempo and rebased whenever tempo changes, since a fixed number of
+line frames per second stops meaning a fixed number of song seconds.
+
+### These two should share a module
+
+`Equalizer.kt`'s biquad and the Android module's `audio/Biquad.kt` are the same filter written twice,
+including two pieces of hardening - the NaN clamp and the denormal flush - that were learned there
+rather than reasoned about here. They agree by inspection, which is not a way to keep two files in
+step.
+
+The reason they are not shared yet: the Android one reaches `EqualizerSettings`, which parses with
+`org.json` - built into Android, an extra artifact here, and one that clashes with the platform copy
+if added carelessly. The fix is a pure-JVM module holding `Biquad`, `Compressor`, `EqualizerSettings`,
+`EqualizerProfile` and the AutoEQ parser, keeping their current package names so no import in `:app`
+changes. `Compressor.kt` and the AutoEQ parser are now duplicated too, which makes the case stronger
+than it was: three files agreeing by inspection is not a way to keep anything in step. Worth
+doing deliberately; not worth doing halfway in the middle of something else.
+
+`utils/RpcText.kt` joined the list with Discord rich presence - also pure Kotlin, also duplicated
+verbatim rather than shared, for the same "not worth doing halfway" reason. Unlike the others it
+reaches for nothing platform-specific at all, so it is the easiest of the four to fold into that
+module first, whenever it gets built.
+
+## The visualiser, and the one thing that makes it work
+
+`AudioSpectrum.kt` (FFT, PCM decode, log-spaced bands), `VisualizerTap.kt` (alignment), drawn by
+`Visualizer.kt`. 27 tests cover the DSP against signals whose answer is known in advance, because
+none of it can be checked by looking: an FFT with a transposed index, a byte order taken the wrong
+way round, or a missing sign extension all produce bars that move plausibly in time with the music.
+
+The part worth not undoing is `VisualizerTap`. Audio is written to the output line well before it is
+heard - the line buffers close to a second - so a spectrum computed when a block is decoded describes
+music that has not reached the speakers. Drawn directly, the bars lead the sound by about a second:
+they jump before the kick and settle before the note ends, which reads as a fault rather than as a
+decoration. So each spectrum is tagged with the frame position at which it becomes audible, and held
+until the line reports having played that far.
+
+This is the same lag `DesktopPlayer` already corrects for when reporting position, by reading the
+line's own frame counter instead of counting what it has written. A seek re-anchors both, since
+flushing the line discards audio that was written but never played.
+
+Bands are spaced logarithmically and levels are in decibels, because pitch and loudness both are.
+Linear bins put six of the seven audible octaves into the top quarter of the display and squash
+everything a listener would call the bass into the first bar.
+
+## Is this "a Compose Multiplatform app"? (asked, and worth answering properly)
+
+Effectively yes, minus the Gradle plugin. It uses Compose Multiplatform's own artifacts
+(`org.jetbrains.compose.*`) and the Compose compiler plugin — it just does not apply the
+`org.jetbrains.compose` Gradle plugin, whose releases track a Kotlin version behind this project's.
+
+What that plugin would add, and what it costs:
+
+- **`compose.desktop` DSL and `packageMsi`/`packageDmg`.** Genuinely useful when packaging, which is
+  not done yet.
+- **Automatic Skiko selection.** Currently named explicitly; the plugin would pick it per host.
+- **A Kotlin version constraint.** This is the reason it was skipped, and the reason to check before
+  adopting: if the plugin still lags the project's Kotlin, adopting it means downgrading Kotlin for
+  the whole repo — `:app` included — which is not a trade worth making for packaging convenience.
+
+So the honest answer is: adopt it when packaging, *if* its Kotlin support has caught up. It is a
+build-config change of a few lines, not a rewrite, and nothing in the source depends on the
+difference.
+
+A separate question is whether `:app` and `:desktop` should share a Compose Multiplatform *source
+set* so screens are written once. That is a much larger change: `:app`'s composables are wired to
+Hilt, Room, DataStore and MediaSession throughout, so sharing them means abstracting all four behind
+`expect`/`actual` first. Worth wanting; not worth starting without deciding to do it properly.
+
+## Immediate next step
+
+True gapless playback and the elaborate GPU visualiser (the
+fluid/ferrofluid style was asked for; the current one is bars). See `PARITY.md`'s "what I would do
+next" for the fuller ordering.
+
+## Icons
+
+`OuterTuneIcons` holds the app's own vector paths, lifted verbatim from the Android module's
+`res/drawable` vectors, so the desktop controls are the same shapes the phone draws rather than
+lookalikes. `material-icons-extended` was tried and dropped: ~11MB for a handful of glyphs that
+would have been *less* correct than these. Android's XML vector format cannot be read off Android,
+but only the path carries meaning and `PathParser` reads exactly that.
+
+## Running it without Gradle
+
+```
+gradlew :desktop:fatJar
+java -jar desktop/build/libs/outertune-desktop.jar
+```
+
+One jar, ~43MB, needs only a JRE 21. The jar is deliberately not committed - it is build output that
+changes with every commit, and git would keep every version of it forever. Attach it to a release
+instead.

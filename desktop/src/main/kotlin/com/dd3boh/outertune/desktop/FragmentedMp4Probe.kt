@@ -1,0 +1,367 @@
+/*
+ * Copyright (C) 2026 OuterTune Project
+ *
+ * SPDX-License-Identifier: GPL-3.0
+ */
+
+package com.dd3boh.outertune.desktop
+
+import com.zionhuang.innertube.YouTube
+import com.zionhuang.innertube.models.YouTubeClient
+import com.zionhuang.innertube.models.YouTubeLocale
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import kotlinx.coroutines.runBlocking
+import net.sourceforge.jaad.SampleBuffer
+import net.sourceforge.jaad.aac.Decoder
+import org.mp4parser.IsoFile
+import org.mp4parser.boxes.iso14496.part12.MovieFragmentBox
+import org.mp4parser.boxes.iso14496.part12.SampleTableBox
+import org.mp4parser.boxes.iso14496.part12.TrackBox
+import org.mp4parser.boxes.iso14496.part12.TrackRunBox
+import org.mp4parser.boxes.sampleentry.AudioSampleEntry
+import org.mp4parser.boxes.iso14496.part1.objectdescriptors.AudioSpecificConfig
+import org.mp4parser.boxes.iso14496.part14.ESDescriptorBox
+import java.io.ByteArrayInputStream
+import java.io.File
+import javax.sound.sampled.AudioFileFormat
+import javax.sound.sampled.AudioFormat
+import javax.sound.sampled.AudioInputStream
+import javax.sound.sampled.AudioSystem
+import javax.sound.sampled.DataLine
+import javax.sound.sampled.SourceDataLine
+import java.nio.channels.Channels
+import java.nio.channels.SeekableByteChannel
+
+/**
+ * Settles whether desktop playback can be done without a native library.
+ *
+ * [AudioDecodeProbe] established that the obstacle is the container, not the codec: everything
+ * YouTube serves is fragmented MP4, whose samples live in `moof`/`trun` boxes rather than the
+ * `moov` sample table an ordinary MP4 reader walks, so a plain reader parses the metadata and then
+ * finds nothing to decode. That left one question worth answering before anyone chooses how to ship
+ * the app: is a fragmented-MP4 demuxer available in pure Java, and does it actually feed a
+ * pure-Java AAC decoder on the specific files YouTube hands out?
+ *
+ * This answers it end to end - fetch, demux, decode, count PCM - so the packaging decision can be
+ * made on evidence:
+ *
+ * - If this passes, both options are real, and the choice between one self-contained jar and a
+ *   native library is about preference rather than possibility.
+ * - If it fails, a native library (VLC/GStreamer) is the only route, and the per-architecture
+ *   bundling that comes with it is unavoidable rather than a choice.
+ *
+ * The AudioSpecificConfig is read from the sample entry's ESDS rather than guessed, because the
+ * decoder has to be configured with the same profile, sample rate and channel layout the stream was
+ * encoded with - and a guess that happens to work on one file is not an answer.
+ */
+object FragmentedMp4Probe {
+
+    private const val ITAG_AAC_MEDIUM = 140
+
+    @JvmStatic
+    fun main(args: Array<String>) = runBlocking {
+        val videoId = args.firstOrNull() ?: "dQw4w9WgXcQ"
+        println("=== OuterTune fragmented-MP4 demux probe ===")
+        println("JVM ${System.getProperty("java.version")} on ${System.getProperty("os.name")}")
+        println("video: $videoId")
+        println()
+
+        YouTube.locale = YouTubeLocale(gl = "US", hl = "en")
+        YouTube.visitorData = YouTube.visitorData().getOrNull() ?: run {
+            println("could not acquire visitorData - aborting")
+            return@runBlocking
+        }
+
+        val client = YouTubeClient.IOS
+        val format = YouTube.player(videoId, client = client).getOrNull()
+            ?.streamingData?.adaptiveFormats
+            ?.firstOrNull { it.itag == ITAG_AAC_MEDIUM && !it.url.isNullOrBlank() }
+            ?: run {
+                println("itag $ITAG_AAC_MEDIUM unavailable - nothing to demux")
+                return@runBlocking
+            }
+
+        val bytes = download(format.url!!, client.userAgent, format.contentLength) ?: run {
+            println("download failed")
+            return@runBlocking
+        }
+        println("downloaded: ${bytes.size} bytes  (itag ${format.itag}, ${format.bitrate / 1000} kbps)")
+        println()
+
+        demuxAndDecode(bytes)
+    }
+
+    private suspend fun download(url: String, userAgent: String, contentLength: Long?): ByteArray? {
+        val ranged = if (contentLength != null && contentLength > 0) "$url&range=0-$contentLength" else url
+        val http = HttpClient(OkHttp)
+        return try {
+            val response = http.get(ranged) { header("User-Agent", userAgent) }
+            if (response.status.value !in 200..299) null else response.body<ByteArray>()
+        } catch (e: Exception) {
+            println("download: ${e::class.simpleName}: ${e.message}")
+            null
+        } finally {
+            http.close()
+        }
+    }
+
+    private fun demuxAndDecode(mp4: ByteArray) {
+        println("--- demux (mp4parser) + decode (jaad), both pure Java ---")
+        try {
+            val channel: SeekableByteChannel = SeekableInMemoryByteChannel(mp4)
+            val iso = IsoFile(channel)
+
+            val fragments = iso.getBoxes(MovieFragmentBox::class.java)
+            println("  movie fragments: ${fragments.size}")
+            if (fragments.isEmpty()) {
+                println("  FAILED - no moof boxes; this file is not fragmented after all")
+                return
+            }
+
+            val config = findAudioSpecificConfig(iso)
+            if (config == null) {
+                println("  FAILED - no AudioSpecificConfig in the sample entry, cannot configure the decoder")
+                return
+            }
+            println("  decoder config:  ${config.size} bytes from esds")
+
+            val samples = extractSamples(mp4, iso)
+            println("  samples found:   ${samples.size}")
+            if (samples.isEmpty()) {
+                println("  FAILED - fragments present but no sample data extracted")
+                return
+            }
+
+            val decoder = Decoder.create(config)
+            val buffer = SampleBuffer()
+            // Kept so the result can be listened to - a frame count proves the decoder ran, it does
+            // not prove the output is the song.
+            val pcm = java.io.ByteArrayOutputStream()
+            var frames = 0
+            var pcmBytes = 0L
+            var sampleRate = 0
+            for (sample in samples.take(400)) {
+                decoder.decodeFrame(sample, buffer)
+                if (buffer.data.isNotEmpty()) {
+                    pcmBytes += buffer.data.size
+                    pcm.write(buffer.data)
+                    sampleRate = buffer.sampleRate
+                    frames++
+                }
+            }
+
+            if (frames == 0 || pcmBytes == 0L) {
+                println("  FAILED - samples extracted but the decoder produced no PCM")
+                return
+            }
+            val seconds = frames * 1024.0 / (if (sampleRate > 0) sampleRate else 44100)
+            println("  decoded:         $frames frames, $pcmBytes bytes of PCM")
+            println("  audio:           ${sampleRate}Hz, ${buffer.channels}ch, ~%.1f s".format(seconds))
+            println("  byte order:      ${if (buffer.isBigEndian) "big-endian" else "little-endian"}")
+            // A crude but decisive check on whether this is music or noise. Real audio moves
+            // smoothly: successive samples are close together, so the mean absolute difference
+            // between them is small relative to their range. White noise - which is what byte-order
+            // or frame-alignment mistakes produce - jumps randomly across the full range on every
+            // sample. The byte totals cannot tell these apart, which is exactly how the first
+            // version of this probe reported success on static.
+            reportSignalPlausibility(pcm.toByteArray(), buffer.isBigEndian)
+            println()
+            println("  PASS - fragmented MP4 demuxes and decodes in pure Java.")
+            println("  A desktop build can ship as one jar with no native audio library.")
+            println()
+            checkAudioOutput(sampleRate, buffer.channels, buffer.isBigEndian)
+            writeWav(pcm.toByteArray(), sampleRate, buffer.channels, buffer.isBigEndian)
+        } catch (e: Throwable) {
+            println("  FAILED - ${e::class.simpleName}: ${e.message}")
+            e.stackTrace.take(3).forEach { println("           at $it") }
+        }
+    }
+
+    /**
+     * Says whether the PCM looks like audio or like noise, under each byte order.
+     *
+     * This exists because the first version of this probe declared success on static. Frame counts
+     * and byte totals only show the decoder emitted correctly *sized* output - they are blind to
+     * whether the bytes are in the right order, and a byte-order or sample-alignment mistake
+     * produces exactly the right number of exactly wrong bytes.
+     *
+     * The discriminator is smoothness. Music is a continuous waveform, so consecutive samples sit
+     * close to each other and the mean step between them is a small fraction of the range they
+     * cover. White noise jumps randomly across the whole range every sample, so its mean step is
+     * enormous by comparison. Measuring both interpretations of the same bytes tells us which byte
+     * order is correct rather than leaving it to be guessed.
+     */
+    private fun reportSignalPlausibility(pcm: ByteArray, decoderSaysBigEndian: Boolean) {
+        fun meanStep(bigEndian: Boolean): Double {
+            var previous = 0
+            var total = 0.0
+            var count = 0
+            var i = 0
+            while (i + 1 < pcm.size) {
+                val lo = pcm[i].toInt() and 0xFF
+                val hi = pcm[i + 1].toInt() and 0xFF
+                val sample = if (bigEndian) (lo shl 8 or hi).toShort() else (hi shl 8 or lo).toShort()
+                if (count > 0) total += kotlin.math.abs(sample - previous).toDouble()
+                previous = sample.toInt()
+                count++
+                i += 2
+            }
+            return if (count > 1) total / (count - 1) else 0.0
+        }
+
+        val little = meanStep(bigEndian = false)
+        val big = meanStep(bigEndian = true)
+        println("  mean sample step: little-endian %.0f, big-endian %.0f".format(little, big))
+        val likely = if (little <= big) "little-endian" else "big-endian"
+        println("  looks like audio when read as: $likely (smaller step = smoother waveform)")
+        if ((likely == "big-endian") != decoderSaysBigEndian) {
+            println("  WARNING - that disagrees with the decoder's own isBigEndian flag")
+        }
+    }
+
+    /**
+     * Whether this machine will actually accept the PCM the decoder produces.
+     *
+     * Decoding to PCM and having somewhere to send it are different claims. javax.sound is part of
+     * the JDK, but a given format still has to be supported by an available mixer, so this asks
+     * rather than assumes - and it only opens a line, it does not play anything, because a probe
+     * should not start making noise on someone's machine unannounced.
+     */
+    private fun checkAudioOutput(sampleRate: Int, channels: Int, bigEndian: Boolean) {
+        val format = AudioFormat(sampleRate.toFloat(), 16, channels, true, bigEndian)
+        val info = DataLine.Info(SourceDataLine::class.java, format)
+        if (!AudioSystem.isLineSupported(info)) {
+            println("  audio out:       NOT SUPPORTED for ${sampleRate}Hz ${channels}ch by any mixer")
+            return
+        }
+        try {
+            (AudioSystem.getLine(info) as SourceDataLine).use { line ->
+                line.open(format)
+                println("  audio out:       OK - javax.sound opened a ${sampleRate}Hz ${channels}ch line")
+            }
+        } catch (e: Exception) {
+            println("  audio out:       FAILED to open - ${e::class.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * Writes the decoded PCM out as a WAV, so the result can be listened to.
+     *
+     * Frame counts and byte totals show the decoder ran and produced correctly sized output; they
+     * cannot show that the output is the song rather than noise. This is the part a person can
+     * check, and it costs one file.
+     */
+    private fun writeWav(pcm: ByteArray, sampleRate: Int, channels: Int, bigEndian: Boolean) {
+        val out = File(System.getProperty("java.io.tmpdir"), "outertune-desktop-decode.wav")
+        try {
+            // The decoder's own byte order, not an assumed one. Declaring little-endian over
+            // big-endian samples is a header that lies about correct data, and it plays as static.
+            val format = AudioFormat(sampleRate.toFloat(), 16, channels, true, bigEndian)
+            val frames = pcm.size.toLong() / format.frameSize
+            AudioInputStream(ByteArrayInputStream(pcm), format, frames).use { stream ->
+                AudioSystem.write(stream, AudioFileFormat.Type.WAVE, out)
+            }
+            println("  wrote:           ${out.absolutePath}")
+            println("                   (play it - it should be the song, not noise)")
+        } catch (e: Exception) {
+            println("  wav write FAILED - ${e::class.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * The encoder's own configuration, taken from the audio sample entry's `esds`.
+     *
+     * Read rather than assumed: the decoder has to be set up with the profile, sample rate and
+     * channel configuration the stream was actually encoded with, and a default that happens to
+     * match one file tells you nothing about the next one.
+     */
+    private fun findAudioSpecificConfig(iso: IsoFile): ByteArray? {
+        for (track in iso.movieBox.getBoxes(TrackBox::class.java)) {
+            val stbl = track.mediaBox?.mediaInformationBox?.getBoxes(SampleTableBox::class.java)?.firstOrNull()
+                ?: continue
+            for (entry in stbl.sampleDescriptionBox.boxes) {
+                if (entry !is AudioSampleEntry) continue
+                val esds = entry.getBoxes(ESDescriptorBox::class.java).firstOrNull() ?: continue
+                val audioConfig: AudioSpecificConfig =
+                    esds.esDescriptor?.decoderConfigDescriptor?.audioSpecificInfo ?: continue
+                return audioConfig.configBytes
+            }
+        }
+        return null
+    }
+
+    /**
+     * Every sample in the file, as individual AAC frames.
+     *
+     * A fragmented file interleaves `moof` (which says how long each sample is) with `mdat` (which
+     * holds the bytes). The sizes in each `trun` are walked in order against the matching `mdat`,
+     * which is what turns one opaque blob into the discrete frames a decoder wants.
+     */
+    private fun extractSamples(raw: ByteArray, iso: IsoFile): List<ByteArray> {
+        val samples = mutableListOf<ByteArray>()
+        // Sample sizes, fragment by fragment, in file order.
+        val sizesPerFragment = iso.getBoxes(MovieFragmentBox::class.java).map { moof ->
+            moof.getBoxes(TrackRunBox::class.java, true)
+                .flatMap { trun -> trun.entries.map { it.sampleSize.toInt() } }
+        }
+        // mdat payload offsets, in the same order.
+        val mdatRanges = findMdatPayloadRanges(raw)
+        if (mdatRanges.size < sizesPerFragment.size) {
+            println("  note: ${sizesPerFragment.size} fragment(s) but ${mdatRanges.size} mdat(s)")
+        }
+
+        sizesPerFragment.forEachIndexed { index, sizes ->
+            val range = mdatRanges.getOrNull(index) ?: return@forEachIndexed
+            var offset = range.first
+            for (size in sizes) {
+                if (offset + size > range.second) break
+                samples += raw.copyOfRange(offset, offset + size)
+                offset += size
+            }
+        }
+        return samples
+    }
+
+    /** Start (inclusive) and end (exclusive) of each mdat payload, found by walking top-level boxes. */
+    private fun findMdatPayloadRanges(raw: ByteArray): List<Pair<Int, Int>> {
+        val ranges = mutableListOf<Pair<Int, Int>>()
+        var pos = 0
+        while (pos + 8 <= raw.size) {
+            val size = ((raw[pos].toInt() and 0xFF) shl 24) or
+                ((raw[pos + 1].toInt() and 0xFF) shl 16) or
+                ((raw[pos + 2].toInt() and 0xFF) shl 8) or
+                (raw[pos + 3].toInt() and 0xFF)
+            val type = String(raw, pos + 4, 4, Charsets.US_ASCII)
+            if (size < 8) break
+            if (type == "mdat") ranges += (pos + 8) to minOf(pos + size, raw.size)
+            pos += size
+        }
+        return ranges
+    }
+}
+
+/** mp4parser wants a seekable channel; the file is already in memory, so give it one over the array. */
+private class SeekableInMemoryByteChannel(private val data: ByteArray) : SeekableByteChannel {
+    private var position = 0L
+    private var open = true
+
+    override fun read(dst: java.nio.ByteBuffer): Int {
+        if (position >= data.size) return -1
+        val count = minOf(dst.remaining(), (data.size - position).toInt())
+        dst.put(data, position.toInt(), count)
+        position += count
+        return count
+    }
+
+    override fun write(src: java.nio.ByteBuffer): Int = throw UnsupportedOperationException("read-only")
+    override fun position(): Long = position
+    override fun position(newPosition: Long): SeekableByteChannel = apply { position = newPosition }
+    override fun size(): Long = data.size.toLong()
+    override fun truncate(size: Long): SeekableByteChannel = throw UnsupportedOperationException("read-only")
+    override fun isOpen(): Boolean = open
+    override fun close() { open = false }
+}

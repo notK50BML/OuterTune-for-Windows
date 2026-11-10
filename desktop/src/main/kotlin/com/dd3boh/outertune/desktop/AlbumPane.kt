@@ -1,0 +1,273 @@
+/*
+ * Copyright (C) 2026 OuterTune Project
+ *
+ * SPDX-License-Identifier: GPL-3.0
+ */
+
+package com.dd3boh.outertune.desktop
+
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.zionhuang.innertube.YouTube
+import com.zionhuang.innertube.models.AlbumItem
+import com.zionhuang.innertube.models.SongItem
+import com.zionhuang.innertube.pages.AlbumPage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** What the album screen is showing. Exclusive states, for the same reason as [HomeState]. */
+sealed interface AlbumState {
+    data object Loading : AlbumState
+    data class Ready(val page: AlbumPage) : AlbumState
+    data class Failed(val message: String) : AlbumState
+}
+
+/**
+ * Fetches one album.
+ *
+ * A browse id rather than a playlist id, because that is what every link into an album carries -
+ * a song's `album.id`, a home feed card's `browseId` - and `YouTube.album` returns the songs along
+ * with the metadata, so one request answers the whole screen.
+ */
+suspend fun loadAlbum(browseId: String): AlbumState = withContext(Dispatchers.IO) {
+    YouTube.album(browseId).fold(
+        onSuccess = { AlbumState.Ready(it) },
+        onFailure = {
+            AlbumState.Failed("Could not load this album: ${it.message ?: it::class.simpleName}")
+        },
+    )
+}
+
+/**
+ * Album page ids that stand for "this song's album, not yet looked up" - see [AlbumLookup]. Opened as
+ * any album is, so the page shows its spinner while the id is found.
+ */
+const val ALBUM_OF_SONG = "song:"
+
+/**
+ * A song's album, from the song alone.
+ *
+ * The library keeps an album's name but not its YouTube id, so every song coming back out of it -
+ * Library, playlists, Liked, Downloaded, Stats, and any queue made from them - had no album id, and
+ * "Go to album" was greyed out on all of them: only a song straight from search or a YouTube page
+ * could reach its album. YouTube's watch-next answer for a song carries its album, so it is asked
+ * when needed; remembered for the session, since a song does not change albums.
+ */
+object AlbumLookup {
+    private val known = java.util.concurrent.ConcurrentHashMap<String, com.zionhuang.innertube.models.Album>()
+
+    /** The song's album - its name and id - or null when YouTube gives it none (a video, an upload). */
+    suspend fun albumFor(songId: String): com.zionhuang.innertube.models.Album? {
+        known[songId]?.let { return it }
+        val found = withContext(Dispatchers.IO) {
+            YouTube.next(com.zionhuang.innertube.models.WatchEndpoint(videoId = songId)).getOrNull()
+                ?.items?.firstOrNull { it.id == songId }?.album
+        }
+        return found?.also { known[songId] = it }
+    }
+}
+
+/**
+ * One album: its cover and details, then its tracks.
+ *
+ * The header is wide rather than stacked, which is the shape a desktop window wants - a phone puts
+ * the cover above the title because it has no width to spare, and copying that here would leave two
+ * thirds of the row empty beside a square.
+ *
+ * Track numbers rather than thumbnails in the list. Every song on an album shares the album's cover,
+ * so a column of forty identical thumbnails carries no information and takes the width that the
+ * titles want. Nor the album under each title, whatever Song details says: it is the page's own.
+ *
+ * Below the tracks, as on the phone: the album's other versions, then albums like it - each a row of
+ * cards, and each only when YouTube has any (see YouTube.albumShelves).
+ */
+@Composable
+fun AlbumPane(
+    state: AlbumState,
+    currentId: String?,
+    onBack: () -> Unit,
+    onPlay: (List<SongItem>, Int) -> Unit,
+    onShuffle: (List<SongItem>) -> Unit,
+    onDownloadAll: ((String, List<SongItem>) -> Unit)? = null,
+    downloadedIds: Set<String> = emptySet(),
+    downloadingTitle: String? = null,
+    onOpenArtist: (StoredArtist) -> Unit,
+    onAddToPlaylist: (StoredSong) -> Unit,
+    onOpenAlbum: (String) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
+            TextButton(onClick = onBack) { Text("← Back") }
+        }
+
+        when (state) {
+            AlbumState.Loading -> Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator() }
+
+            is AlbumState.Failed -> Box(
+                modifier = Modifier.fillMaxSize().padding(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = state.message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            is AlbumState.Ready -> {
+                val page = state.page
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        Header(
+                            page = page,
+                            onPlay = { onPlay(page.songs, 0) },
+                            onShuffle = { onShuffle(page.songs) },
+                            onOpenArtist = onOpenArtist,
+                            download = onDownloadAll?.let { download ->
+                                {
+                                    DownloadAllButton(
+                                        songIds = page.songs.map { it.id },
+                                        downloadedIds = downloadedIds,
+                                        busy = downloadingTitle == page.album.title,
+                                        onDownload = { download(page.album.title, page.songs) },
+                                    )
+                                }
+                            },
+                        )
+                    }
+                    itemsIndexed(page.songs) { index, song ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${index + 1}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(44.dp),
+                            )
+                            Box(modifier = Modifier.weight(1f)) {
+                                SongRow(song, playing = song.id == currentId, showAlbum = false) {
+                                    onPlay(page.songs, index)
+                                }
+                            }
+                        }
+                    }
+                    albumShelf("Other versions", page.otherVersions, onOpenAlbum)
+                    albumShelf("Similar albums", page.similarAlbums, onOpenAlbum)
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
+            }
+        }
+    }
+}
+
+/** A titled row of album cards under the tracks - nothing at all when there are none. */
+private fun LazyListScope.albumShelf(title: String, albums: List<AlbumItem>, onOpen: (String) -> Unit) {
+    if (albums.isEmpty()) return
+    item(key = "head-$title") { SectionHeader(title = title, onMore = null) }
+    item(key = "row-$title") {
+        val sideState0 = rememberLazyListState()
+        LazyRow(
+            state = sideState0,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 28.dp),
+            modifier = Modifier.sideScroll(sideState0),
+        ) {
+            val albumsUniqueKeys = uniqueKeys(albums) { it.browseId }
+            itemsIndexed(albums, key = { i, _ -> albumsUniqueKeys[i] }) { _, album ->
+                Card(item = album, playing = false) { onOpen(album.browseId) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Header(
+    page: AlbumPage,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
+    download: (@Composable () -> Unit)? = null,
+    onOpenArtist: (StoredArtist) -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 12.dp)) {
+        Artwork(page.album.thumbnail, size = 220.dp, cornerRadius = 10.dp)
+        Spacer(modifier = Modifier.width(28.dp))
+        Column(verticalArrangement = Arrangement.Center, modifier = Modifier.weight(1f)) {
+            Text(
+                text = page.album.title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            ArtistNames(
+                artists = page.album.artists.orEmpty().map { artist ->
+                    artist.id?.let { StoredArtist(it, artist.name) } ?: StoredArtist.unlinked(artist.name)
+                },
+                fallback = page.album.artists?.joinToString { it.name }.orEmpty(),
+                colour = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleMedium,
+                onClick = onOpenArtist,
+            )
+            Text(
+                text = listOfNotNull(
+                    page.album.year?.toString(),
+                    "${page.songs.size} ${if (page.songs.size == 1) "track" else "tracks"}",
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onPlay, enabled = page.songs.isNotEmpty()) {
+                    Icon(OuterTuneIcons.play, contentDescription = null, modifier = Modifier.width(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Play")
+                }
+                OutlinedButton(onClick = onShuffle, enabled = page.songs.isNotEmpty()) {
+                    Icon(OuterTuneIcons.shuffle, contentDescription = null, modifier = Modifier.width(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Shuffle")
+                }
+                download?.invoke()
+                // Saves the album to Library → Albums, and to the account's when signed in.
+                SaveToLibraryButton(page.album.toSaved())
+            }
+        }
+    }
+}

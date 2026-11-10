@@ -1,0 +1,160 @@
+package com.zionhuang.innertube.models.response
+
+import com.zionhuang.innertube.models.ResponseContext
+import com.zionhuang.innertube.models.Thumbnails
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * PlayerResponse with [com.zionhuang.innertube.models.YouTubeClient.WEB_REMIX] client
+ */
+@Serializable
+data class PlayerResponse(
+    val responseContext: ResponseContext,
+    val playabilityStatus: PlayabilityStatus,
+    val playerConfig: PlayerConfig?,
+    val streamingData: StreamingData?,
+    val videoDetails: VideoDetails?,
+    @SerialName("playbackTracking")
+    val playbackTracking: PlaybackTracking?,
+    val captions: Captions? = null,
+) {
+    @Serializable
+    data class Captions(
+        val playerCaptionsTracklistRenderer: PlayerCaptionsTracklistRenderer?,
+    ) {
+        @Serializable
+        data class PlayerCaptionsTracklistRenderer(
+            val captionTracks: List<CaptionTrack>?,
+        ) {
+            @Serializable
+            data class CaptionTrack(
+                val baseUrl: String,
+                val languageCode: String,
+                val kind: String? = null,  // "asr" = auto-generated caption
+            )
+        }
+    }
+
+    @Serializable
+    data class PlayabilityStatus(
+        val status: String,
+        val reason: String?,
+    )
+
+    @Serializable
+    data class PlayerConfig(
+        val audioConfig: AudioConfig,
+    ) {
+        @Serializable
+        data class AudioConfig(
+            val loudnessDb: Double?,
+            val perceptualLoudnessDb: Double?,
+        )
+    }
+
+    @Serializable
+    data class StreamingData(
+        val formats: List<Format>?,
+        val adaptiveFormats: List<Format>,
+        val expiresInSeconds: Int,
+        /** A live stream's HLS playlist - what a player that streams HLS plays it from. */
+        val hlsManifestUrl: String? = null,
+    ) {
+        @Serializable
+        data class Format(
+            val itag: Int,
+            val url: String?,
+            val mimeType: String,
+            val bitrate: Int,
+            val width: Int?,
+            val height: Int?,
+            val contentLength: Long?,
+            val quality: String,
+            val fps: Int?,
+            val qualityLabel: String?,
+            val averageBitrate: Int?,
+            val audioQuality: String?,
+            val approxDurationMs: String?,
+            val audioSampleRate: Int?,
+            val audioChannels: Int?,
+            val loudnessDb: Double?,
+            val lastModified: Long?,
+            val signatureCipher: String?,
+            /**
+             * The older sibling of [signatureCipher]. Some clients still answer with this name for
+             * the same payload, and the ported stream engine reads `signatureCipher ?: cipher`.
+             */
+            val cipher: String? = null,
+            val audioTrack: AudioTrack? = null,
+        ) {
+            val isAudio: Boolean
+                get() = width == null
+
+            /**
+             * Whether this is the track as released rather than one of YouTube's machine-dubbed
+             * translations. Auto-dubbed tracks carry an audioTrack block declaring themselves as
+             * such; the original carries none, which is why absence rather than `false` is the test.
+             * Picking one of these by accident replaces the vocal entirely, so the ported engine
+             * filters on it.
+             */
+            val isOriginal: Boolean
+                get() = audioTrack?.isAutoDubbed == null
+
+            @Serializable
+            data class AudioTrack(
+                val displayName: String?,
+                val id: String?,
+                val isAutoDubbed: Boolean?,
+            )
+        }
+    }
+
+    @Serializable
+    data class VideoDetails(
+        val videoId: String,
+        // Everything past videoId is optional: the tv/embedded clients (and VISIONOS) answer with a
+        // trimmed videoDetails, and requiring these fields made the whole response fail to parse,
+        // which silently dropped those clients from the stream fallback chain - the stream URL they
+        // carried was thrown away with it. Metadata is taken from MAIN_CLIENT anyway, so a sparse
+        // videoDetails from a fallback client costs nothing.
+        val title: String? = null,
+        val author: String? = null,
+        val channelId: String? = null,
+        val lengthSeconds: String? = null,
+        val musicVideoType: String? = null,
+        val viewCount: String? = null,
+        val thumbnail: Thumbnails? = null,
+        /** On air now - a 24/7 radio, a concert. Its formats have no end; see the desktop's LiveSource. */
+        val isLive: Boolean? = null,
+        /** Was or is a live stream, ended ones (now ordinary videos) included. */
+        val isLiveContent: Boolean? = null,
+    )
+
+    @Serializable
+    data class PlaybackTracking(
+        @SerialName("videostatsPlaybackUrl")
+        val videostatsPlaybackUrl: VideostatsPlaybackUrl?,
+        @SerialName("videostatsWatchtimeUrl")
+        val videostatsWatchtimeUrl: VideostatsWatchtimeUrl?,
+        @SerialName("atrUrl")
+        val atrUrl: AtrUrl?,
+    ) {
+        @Serializable
+        data class VideostatsPlaybackUrl(
+            @SerialName("baseUrl")
+            val baseUrl: String?,
+        )
+
+        @Serializable
+        data class VideostatsWatchtimeUrl(
+            @SerialName("baseUrl")
+            val baseUrl: String?,
+        )
+        @Serializable
+        data class AtrUrl(
+            @SerialName("baseUrl")
+            val baseUrl: String?,
+        )
+    }
+}

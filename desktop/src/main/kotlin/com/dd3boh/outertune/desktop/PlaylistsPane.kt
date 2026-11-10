@@ -1,0 +1,743 @@
+/*
+ * Copyright (C) 2026 OuterTune Project
+ *
+ * SPDX-License-Identifier: GPL-3.0
+ */
+
+package com.dd3boh.outertune.desktop
+
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.width
+import com.zionhuang.innertube.models.PlaylistItem
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+/**
+ * The list of playlists, and the songs in whichever is open.
+ *
+ * Selection is held by the caller rather than here. A playlist stays open while the user searches
+ * for something to put in it, so this cannot own that state without the act of searching closing the
+ * thing being added to.
+ */
+@Composable
+fun PlaylistsPane(
+    playlists: List<StoredPlaylist>,
+    selected: StoredPlaylist?,
+    songsInSelected: List<StoredSong>,
+    currentId: String?,
+    onSelect: (StoredPlaylist?) -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (StoredPlaylist, String) -> Unit,
+    onDelete: (StoredPlaylist) -> Unit,
+    /** The songs, where to start, and the queue's name when it is not the open playlist's own. */
+    onPlay: (List<StoredSong>, Int, String?) -> Unit,
+    onRemoveSong: (StoredPlaylist, StoredSong) -> Unit,
+    onMoveSong: (StoredPlaylist, Int, Int) -> Unit,
+    /** Playlists saved on YouTube. Empty when signed out, which is not an error. */
+    saved: List<PlaylistItem> = emptyList(),
+    onPlaySaved: (PlaylistItem) -> Unit = {},
+    onDownloadAll: ((String, List<StoredSong>) -> Unit)? = null,
+    downloadedIds: Set<String> = emptySet(),
+    downloadingTitle: String? = null,
+    /** The phone's two automatic playlists, kept by the app rather than made: liked and downloaded. */
+    liked: List<StoredSong> = emptyList(),
+    downloaded: List<StoredSong> = emptyList(),
+    grid: Boolean = false,
+    onToggleGrid: () -> Unit = {},
+    /** The open playlist's ⋮: play next, add to queue, export... Rename and Delete are added here. */
+    menuFor: (StoredPlaylist, List<StoredSong>) -> PlaylistActions = { _, _ -> PlaylistActions() },
+) {
+    var naming by remember { mutableStateOf<NameRequest?>(null) }
+    // Which automatic playlist is open, if one is: "liked" or "downloaded", as on the phone.
+    var auto by remember { mutableStateOf<String?>(null) }
+    // Kept beside the local ones rather than on a tab of their own. They are the same kind of thing
+    // to the person looking for them, and a tab would mean knowing which of two places a playlist
+    // lives in before being able to find it.
+
+
+    naming?.let { request ->
+        NameDialog(
+            title = if (request.existing == null) "New playlist" else "Rename playlist",
+            initial = request.existing?.name ?: "",
+            onDismiss = { naming = null },
+            onConfirm = { name ->
+                if (request.existing == null) onCreate(name) else onRename(request.existing, name)
+                naming = null
+            },
+        )
+    }
+
+    auto?.let { which ->
+        val title = if (which == "liked") "Liked songs" else "Downloaded songs"
+        val songs = if (which == "liked") liked else downloaded
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+            ) {
+                TextButton(onClick = { auto = null }) { Text("← Playlists") }
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (songs.isNotEmpty()) {
+                    TextButton(onClick = { onPlay(songs, 0, title) }) { Text("Play") }
+                    TextButton(onClick = { onPlay(songs.shuffled(), 0, title) }) { Text("Shuffle") }
+                }
+            }
+            if (songs.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (which == "liked") "No liked songs yet." else "Nothing downloaded yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn {
+                    // A playlist can hold a song twice - see uniqueKeys.
+                    val songsKeys = uniqueKeys(songs) { it.id }
+                    itemsIndexed(songs, key = { i, _ -> songsKeys[i] }) { index, song ->
+                        StoredSongRow(song, playing = song.id == currentId) { onPlay(songs, index, title) }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    if (selected == null) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+            ) {
+                // The same heading as Library's, so the two read as sections of one app.
+                Text(
+                    "Playlists",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                // The phone's view switch: shows what pressing it will give.
+                IconButton(onClick = onToggleGrid) {
+                    Icon(
+                        if (grid) OuterTuneIcons.viewList else OuterTuneIcons.gridView,
+                        contentDescription = if (grid) "Show as a list" else "Show as a grid",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                TextButton(onClick = { naming = NameRequest(null) }) { Text("New") }
+            }
+
+            if (grid) {
+                PlaylistGrid(
+                    playlists = playlists,
+                    saved = saved,
+                    liked = liked,
+                    downloaded = downloaded,
+                    onOpenAuto = { auto = it },
+                    onSelect = onSelect,
+                    onPlaySaved = onPlaySaved,
+                )
+                return@Column
+            }
+
+            LazyColumn {
+                // The phone's automatic playlists first, with its icons for them.
+                item { AutoPlaylistRow("Liked songs", liked.size, OuterTuneIcons.favorite) { auto = "liked" } }
+                item { AutoPlaylistRow("Downloaded songs", downloaded.size, OuterTuneIcons.cloudDownload) { auto = "downloaded" } }
+                if (saved.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Saved on YouTube",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                        )
+                    }
+                    itemsIndexed(saved) { _, playlist ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                                // Opens its page (OnlinePlaylistPane) rather than playing blind.
+                                .clickable { onPlaySaved(playlist) },
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(10.dp),
+                            ) {
+                                Artwork(playlist.thumbnail, size = 40.dp, cornerRadius = 6.dp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        playlist.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        listOfNotNull(
+                                            playlist.author?.name,
+                                            playlist.songCountText,
+                                        ).joinToString(" · ").ifBlank { "Playlist" },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (playlists.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "On this computer",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
+                            )
+                        }
+                    }
+                }
+                itemsIndexed(playlists) { _, playlist ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .clickable { onSelect(playlist) },
+                    ) {
+                        // On a tile like every other row here, so the names line up.
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(10.dp)) {
+                            IconTile(OuterTuneIcons.queueMusic, size = 40.dp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    playlist.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    if (playlist.songCount == 1) "1 song" else "${playlist.songCount} songs",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+        ) {
+            TextButton(onClick = { onSelect(null) }) { Text("← Playlists") }
+            Text(
+                selected.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (songsInSelected.isNotEmpty()) {
+                TextButton(onClick = { onPlay(songsInSelected, 0, null) }) {
+                    Icon(OuterTuneIcons.play, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Play")
+                }
+                TextButton(onClick = { onPlay(songsInSelected.shuffled(), 0, null) }) {
+                    Icon(OuterTuneIcons.shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Shuffle")
+                }
+            }
+            if (onDownloadAll != null) {
+                DownloadAllButton(
+                    songIds = songsInSelected.map { it.id },
+                    downloadedIds = downloadedIds,
+                    busy = downloadingTitle == selected.name,
+                    onDownload = { onDownloadAll(selected.name, songsInSelected) },
+                )
+            }
+            // Everything else the phone's playlist menu has, behind a ⋮ as it is there.
+            PlaylistMenuButton(
+                menuFor(selected, songsInSelected).copy(
+                    rename = { naming = NameRequest(selected) },
+                    delete = { onDelete(selected); onSelect(null) },
+                    name = selected.name,
+                )
+            )
+        }
+
+        if (songsInSelected.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "Nothing here yet. Use a song's ⋮ menu > Add to playlist.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return@Column
+        }
+
+        // Which row is being dragged, and how far it has travelled since it last stepped. Held by
+        // the list rather than by a row, so a row can hand the drag on to its neighbour as it
+        // passes - the gesture belongs to the list, not to whichever composable began it.
+        var dragging by remember(selected.id) { mutableStateOf(-1) }
+        var dragOffset by remember(selected.id) { mutableStateOf(0f) }
+        val rowHeightPx = with(LocalDensity.current) { PLAYLIST_ROW_HEIGHT.toPx() }
+
+        LazyColumn {
+            // Keyed by song id so a composable follows its song across a reorder. Keyed by index
+            // instead, every row would be told it now holds different content the moment anything
+            // moved, and the drag in progress would be cancelled by its own first step.
+            // A playlist can hold a song twice - see uniqueKeys.
+            val songsInSelectedKeys = uniqueKeys(songsInSelected) { it.id }
+            itemsIndexed(songsInSelected, key = { i, _ -> songsInSelectedKeys[i] }) { index, song ->
+                // Read when a drag starts: the handle's gesture is keyed by the song and outlives
+                // reorders, so the index it was created with goes stale - see the queue's handle.
+                val currentIndex by rememberUpdatedState(index)
+                val held = index == dragging
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(PLAYLIST_ROW_HEIGHT)
+                        // Above every other row while held - drawn in list order, the rows after it covered it.
+                        .zIndex(if (held) 1f else 0f)
+                        // Lifted while held, so the row under the pointer is visibly the one being
+                        // moved rather than one of several that shifted around it.
+                        .graphicsLayer {
+                            translationY = if (held) dragOffset else 0f
+                            shadowElevation = if (held) 12f else 0f
+                            alpha = if (held) 0.92f else 1f
+                        }
+                        .background(
+                            if (held) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                            } else {
+                                Color.Transparent
+                            }
+                        ),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        StoredSongRow(song, playing = song.id == currentId) {
+                            onPlay(songsInSelected, index, null)
+                        }
+                    }
+                    TextButton(onClick = { onRemoveSong(selected, song) }) { Text("✕") }
+
+                    // A handle rather than the whole row, for the same reason the queue uses one:
+                    // the row is already a click target for playing the song, and a list where
+                    // pressing anything might mean "drag" is a list that cannot be scrolled with
+                    // confidence.
+                    Icon(
+                        OuterTuneIcons.dragHandle,
+                        contentDescription = "Reorder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(22.dp)
+                            .pointerHoverIcon(PointerIcon.Hand)
+                            .pointerInput(song.id) {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        dragging = currentIndex
+                                        dragOffset = 0f
+                                    },
+                                    onDragEnd = { dragging = -1; dragOffset = 0f },
+                                    onDragCancel = { dragging = -1; dragOffset = 0f },
+                                ) { change, amount ->
+                                    change.consume()
+                                    dragOffset += amount.y
+                                    // Stepped a whole row at a time rather than continuously, so
+                                    // the list settles between moves instead of thrashing while the
+                                    // pointer crosses a boundary.
+                                    val steps = (dragOffset / rowHeightPx).toInt()
+                                    if (steps != 0 && dragging >= 0) {
+                                        val target = (dragging + steps)
+                                            .coerceIn(0, songsInSelected.lastIndex)
+                                        if (target != dragging) {
+                                            onMoveSong(selected, dragging, target)
+                                            dragging = target
+                                        }
+                                        // Whatever the step consumed is taken off, so the remainder
+                                        // still counts towards the next one.
+                                        dragOffset -= steps * rowHeightPx
+                                    }
+                                }
+                            },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Fixed so a drag can be stepped in whole rows.
+ *
+ * The gesture converts a distance into a number of rows, which needs every row to be the same known
+ * height - a list of rows that size themselves to their content has no such number.
+ */
+private val PLAYLIST_ROW_HEIGHT = 60.dp
+
+/** Which playlist a name is being asked for, or null when creating a new one. */
+private data class NameRequest(val existing: StoredPlaylist?)
+
+@Composable
+private fun NameDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                modifier = Modifier.typingField(),
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = { Text("Name") },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim()) },
+                // A playlist with no name is unfindable in a list of playlists.
+                enabled = name.isNotBlank(),
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Offers the playlists a song can be added to.
+ *
+ * Creating one from here as well, because the moment someone wants to file a song is exactly when
+ * they discover they have nowhere to put it, and sending them elsewhere to make one loses the song
+ * they were looking at.
+ *
+ * Playlists that already hold the song are ticked, so filing it twice is not a guess. A click adds
+ * to that one playlist and closes; a long press starts choosing several instead, and the confirm
+ * button at the bottom adds to all of them at once.
+ *
+ * @param heading what is being added: a song's title, or "12 songs from …" for a whole playlist.
+ * @param containing the ids of the playlists that already hold all of it.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun AddToPlaylistDialog(
+    heading: String,
+    playlists: List<StoredPlaylist>,
+    containing: Set<String>,
+    onDismiss: () -> Unit,
+    onAdd: (List<StoredPlaylist>) -> Unit,
+    onCreateAndAdd: (String) -> Unit,
+) {
+    var creating by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    // Non-null while choosing several: the ids picked so far.
+    var picked by remember { mutableStateOf<Set<String>?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (picked != null) "Add to playlists" else "Add to playlist") },
+        text = {
+            Column {
+                Text(
+                    heading,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (creating) {
+                    OutlinedTextField(
+                        modifier = Modifier.typingField(),
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        label = { Text("New playlist name") },
+                    )
+                } else {
+                    if (playlists.isEmpty()) {
+                        Text(
+                            "No playlists yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (picked == null) {
+                        Text(
+                            "Click to add · hold to choose several",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    }
+                    LazyColumn(modifier = Modifier.heightIn(max = 380.dp)) {
+                        itemsIndexed(playlists, key = { _, it -> it.id }) { _, playlist ->
+                            val selection = picked
+                            AddToPlaylistRow(
+                                playlist = playlist,
+                                alreadyIn = playlist.id in containing,
+                                selecting = selection != null,
+                                selected = selection?.contains(playlist.id) == true,
+                                onClick = {
+                                    if (selection != null) {
+                                        picked = if (playlist.id in selection) selection - playlist.id else selection + playlist.id
+                                    } else {
+                                        onAdd(listOf(playlist))
+                                        onDismiss()
+                                    }
+                                },
+                                onLongClick = {
+                                    picked = (selection ?: emptySet()) + playlist.id
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val selection = picked
+            when {
+                creating -> TextButton(
+                    onClick = { onCreateAndAdd(name.trim()); onDismiss() },
+                    enabled = name.isNotBlank(),
+                ) { Text("Create and add") }
+
+                // Choosing several: the one way out that adds anything.
+                selection != null -> Button(
+                    onClick = {
+                        onAdd(playlists.filter { it.id in selection })
+                        onDismiss()
+                    },
+                    enabled = selection.isNotEmpty(),
+                ) {
+                    Text(
+                        when (selection.size) {
+                            0 -> "Choose playlists"
+                            1 -> "Add to 1 playlist"
+                            else -> "Add to ${selection.size} playlists"
+                        }
+                    )
+                }
+
+                else -> TextButton(onClick = { creating = true }) { Text("New playlist") }
+            }
+        },
+        dismissButton = {
+            // Backing out of choosing several returns to the list, not out of the dialog.
+            if (picked != null) {
+                TextButton(onClick = { picked = null }) { Text("Back") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+/**
+ * One playlist in [AddToPlaylistDialog]: a checkbox while choosing several, its name and size, and
+ * a tick when the song is already in it.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun AddToPlaylistRow(
+    playlist: StoredPlaylist,
+    alreadyIn: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        if (selecting) {
+            Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(32.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                playlist.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                if (playlist.songCount == 1) "1 song" else "${playlist.songCount} songs",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (alreadyIn) {
+            // Says where the song already is; adding there again changes nothing.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(OuterTuneIcons.check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Added", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+/** An automatic playlist in the list: its icon in a tile where a cover would be, as on the phone. */
+@Composable
+private fun AutoPlaylistRow(title: String, count: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(10.dp)) {
+            IconTile(icon, size = 40.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    if (count == 1) "1 song" else "$count songs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** The phone's automatic-playlist thumbnail: its icon centred on a tinted square. */
+@Composable
+private fun IconTile(icon: androidx.compose.ui.graphics.vector.ImageVector, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.15f))
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(size * 0.5f))
+    }
+}
+
+/** Every playlist as a tile - cover (or icon) over its name and count - the phone's grid view. */
+@Composable
+private fun PlaylistGrid(
+    playlists: List<StoredPlaylist>,
+    saved: List<PlaylistItem>,
+    liked: List<StoredSong>,
+    downloaded: List<StoredSong>,
+    onOpenAuto: (String) -> Unit,
+    onSelect: (StoredPlaylist) -> Unit,
+    onPlaySaved: (PlaylistItem) -> Unit,
+) {
+    @Composable
+    fun tile(title: String, subtitle: String, onClick: () -> Unit, art: @Composable (androidx.compose.ui.unit.Dp) -> Unit) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onClick)
+                .padding(6.dp),
+        ) {
+            androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                art(maxWidth)
+            }
+            Spacer(modifier = Modifier.size(6.dp))
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    fun count(n: Int) = if (n == 1) "1 song" else "$n songs"
+
+    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item { tile("Liked songs", count(liked.size), { onOpenAuto("liked") }) { IconTile(OuterTuneIcons.favorite, it) } }
+        item { tile("Downloaded songs", count(downloaded.size), { onOpenAuto("downloaded") }) { IconTile(OuterTuneIcons.cloudDownload, it) } }
+        items(saved.size) { i ->
+            val playlist = saved[i]
+            tile(
+                playlist.title,
+                listOfNotNull(playlist.author?.name, playlist.songCountText).joinToString(" · ").ifBlank { "Playlist" },
+                { onPlaySaved(playlist) },
+            ) { Artwork(playlist.thumbnail, size = it, cornerRadius = it * 0.06f) }
+        }
+        items(playlists.size) { i ->
+            val playlist = playlists[i]
+            tile(playlist.name, count(playlist.songCount), { onSelect(playlist) }) { IconTile(OuterTuneIcons.queueMusic, it) }
+        }
+    }
+}

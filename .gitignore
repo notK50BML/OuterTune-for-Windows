@@ -1,0 +1,12 @@
+*.class
+*.log
+bin/
+out/
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+# Written by the app on first run beside its jar - see the java options in desktop/build.gradle.kts.
+*.jsa

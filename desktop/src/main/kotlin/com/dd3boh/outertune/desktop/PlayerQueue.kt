@@ -1,0 +1,569 @@
+/*
+ * Copyright (C) 2026 OuterTune Project
+ *
+ * SPDX-License-Identifier: GPL-3.0
+ */
+
+package com.dd3boh.outertune.desktop
+
+import com.zionhuang.innertube.models.SongItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
+enum class RepeatMode { OFF, ALL, ONE }
+
+/** The queue as the UI needs to see it: what is in it, and which entry is current. */
+data class QueueState(
+    val songs: List<SongItem> = emptyList(),
+    val index: Int = -1,
+    val shuffled: Boolean = false,
+    val repeat: RepeatMode = RepeatMode.OFF,
+    /**
+     * Where each song sits in the current play order, so the queue can be *shown* in play order
+     * while [songs] stays in the order it was added. Without this, turning on shuffle would
+     * rearrange the list under the user, which loses the album they queued.
+     */
+    val order: List<Int> = emptyList(),
+    val orderPosition: Int = -1,
+    /**
+     * What this queue is, for the collapsed queue handle - "Liked songs", an album, a playlist.
+     *
+     * Where the songs came from is the one thing the handle can usefully say in a single line, and
+     * it is what the Android player shows there. Naming the source is more use than naming the next
+     * song, which is already about to be visible anyway.
+     */
+    val title: String = "Queue",
+    /** Played from a station or radio - see isStationPlaylistId. */
+    val fromStation: Boolean = false,
+    /**
+     * Played by Listen Together while following someone else's session - see
+     * DesktopPlaybackBridge.playTrack. Not kept when the queue is saved for the next start: by then
+     * the session is long over, and playing the queue again is the listener's own choice.
+     */
+    val following: Boolean = false,
+) {
+    val current: SongItem? get() = songs.getOrNull(index)
+
+    /**
+     * Whether this queue's songs are someone else's picks rather than the listener's: a station's,
+     * which chooses its songs itself, or a Listen Together host's. Neither counts in Stats or the
+     * play counts, nor goes to the account. Read as each song starts (see the play counting in
+     * Main), so a song started while following stays uncounted after leaving the session part way
+     * through it.
+     *
+     * Following used to count in full: a follower's songs went through the same queue as any other,
+     * so every song a host played was recorded on each device listening along too.
+     */
+    val station: Boolean get() = fromStation || following
+
+    /**
+     * What [PlayerQueue.next] would land on, without moving there.
+     *
+     * Exists so the next track can be fetched while this one is still playing. Deliberately mirrors
+     * next()'s branches rather than approximating them - a prefetch of the wrong song is not a
+     * broken queue, it is a silent waste of the download that was supposed to remove the gap, which
+     * is the kind of thing that looks like it works and simply never helps.
+     */
+    val upcoming: SongItem?
+        get() = when {
+            order.isEmpty() -> null
+            // Repeat-one replays this track, so this track is genuinely what comes next.
+            repeat == RepeatMode.ONE -> current
+            orderPosition < order.lastIndex -> songs.getOrNull(order[orderPosition + 1])
+            repeat == RepeatMode.ALL -> songs.getOrNull(order.first())
+            // The end, with repeat off: next() stops rather than wrapping, so nothing is coming.
+            else -> null
+        }
+
+    /**
+     * Repeat-all makes both directions always available, since either end wraps. Repeat-one does
+     * not: the buttons move through the queue as if repeat were off, as on the phone - only a song
+     * ending on its own loops.
+     */
+    // Either loop wraps: past the last song is the first, so neither button ever has nowhere to go.
+    val hasPrevious: Boolean get() = repeat != RepeatMode.OFF || orderPosition > 0
+    val hasNext: Boolean get() = repeat != RepeatMode.OFF || orderPosition in 0 until order.lastIndex
+}
+
+/**
+ * The arithmetic behind reordering and removing, with no player attached.
+ *
+ * Separated out for the same reason the artist credit offsets were: it is the kind of logic that
+ * fails silently. Get it wrong and the queue still renders, still plays, and simply moves the wrong
+ * entry - or quietly changes which song is current while one is playing, which is the worst outcome
+ * because the music jumps for no reason the user can connect to what they did.
+ *
+ * Everything here works in *play-order positions* - what the queue list actually shows - rather than
+ * in indices into [QueueState.songs]. Those two are the same only until shuffle is turned on, and a
+ * function that takes one and means the other is a bug waiting for the first shuffled queue.
+ */
+internal object QueueEdit {
+
+    /**
+     * Moves the entry at play-order position [from] to [to].
+     *
+     * The current song stays current. Its position in the order shifts whenever the move steps over
+     * it, so it is found again by its song index rather than assumed to be where it was - dragging
+     * an entry from below the current one to above it moves everything in between by one, including
+     * the thing being listened to.
+     */
+    fun move(state: QueueState, from: Int, to: Int): QueueState {
+        if (from !in state.order.indices || to !in state.order.indices || from == to) return state
+        val currentSong = state.order.getOrNull(state.orderPosition)
+        val order = state.order.toMutableList()
+        order.add(to, order.removeAt(from))
+        val position = currentSong?.let(order::indexOf) ?: -1
+        return state.copy(
+            order = order,
+            orderPosition = if (position >= 0) position else state.orderPosition,
+        )
+    }
+
+    /**
+     * Removes the entry at play-order position [position].
+     *
+     * Two things have to move together. The song leaves [QueueState.songs], so every order entry
+     * pointing past it has to come down by one; and the order loses a slot, so a current position
+     * after the removal has to come down by one as well. Doing either without the other leaves the
+     * queue pointing at the wrong song.
+     *
+     * Removing the entry that is playing leaves [QueueState.orderPosition] where it was, so the song
+     * that moved up into that slot becomes current - which is what "remove this one" means when the
+     * thing removed is the thing playing. The caller is responsible for noticing that the current
+     * song changed and starting it.
+     */
+    fun removeAt(state: QueueState, position: Int): QueueState {
+        if (position !in state.order.indices) return state
+        val songIndex = state.order[position]
+
+        val songs = state.songs.toMutableList().apply { removeAt(songIndex) }
+        if (songs.isEmpty()) {
+            return QueueState(shuffled = state.shuffled, repeat = state.repeat, title = state.title)
+        }
+
+        val order = state.order
+            .filterIndexed { index, _ -> index != position }
+            .map { if (it > songIndex) it - 1 else it }
+
+        val orderPosition = when {
+            position < state.orderPosition -> state.orderPosition - 1
+            else -> state.orderPosition
+        }.coerceIn(0, order.lastIndex)
+
+        return state.copy(
+            songs = songs,
+            order = order,
+            orderPosition = orderPosition,
+            // Derived rather than carried over: the song this position points at may have a
+            // different index now that one was taken out from under it.
+            index = order[orderPosition],
+        )
+    }
+}
+
+/**
+ * Owns the queue and drives [DesktopPlayer] from it.
+ *
+ * The player deliberately knows nothing about queues - it plays one song and reports when that song
+ * ends. Keeping the two apart means the rule for what plays next lives in one place, and the player
+ * stays a thing that can be tested by asking it to play a song.
+ *
+ * Advancing is driven by the player's `onFinished`, which fires only when a track reaches its own
+ * end. Stopping or replacing a track deliberately does not advance: those are the user leaving the
+ * song, and moving the queue on for them would be the opposite of what they asked.
+ */
+class PlayerQueue(
+    private val player: DesktopPlayer,
+    private val scope: CoroutineScope,
+    private val onPlayed: (SongItem) -> Unit = {},
+) {
+    val state = MutableStateFlow(QueueState())
+
+    /**
+     * Queues put aside - the phone's queue board. Playing something new keeps the queue it replaces
+     * here, by title, so going back to it picks up where it was; the newest last. Bounded by
+     * [maxSaved], the oldest dropping off.
+     */
+    val saved = MutableStateFlow<List<SavedQueue>>(emptyList())
+
+    /** How many queues are kept aside - the phone's "max queues", 19 by default. */
+    @Volatile
+    var maxSaved: Int = 19
+
+    /** Keeps [queue] aside under its title, replacing an older one of the same title. */
+    private fun stash(queue: QueueState, positionMs: Long) {
+        if (queue.songs.isEmpty()) return
+        saved.value = (saved.value.filter { it.state.title != queue.title } + SavedQueue(queue, positionMs))
+            .takeLast(maxSaved.coerceAtLeast(0))
+    }
+
+    /** Puts the current queue aside and plays [queue] from where it was left. */
+    fun switchTo(queue: SavedQueue) {
+        val current = state.value
+        saved.value = saved.value.filter { it !== queue }
+        stash(current, player.positionMs.value)
+        // The radio's feed belonged to the queue just put aside; left set, it would go on adding
+        // that radio's songs to this one.
+        more = null
+        state.value = queue.state
+        startCurrent(queue.positionMs)
+    }
+
+    fun removeSaved(queue: SavedQueue) {
+        saved.value = saved.value.filter { it !== queue }
+    }
+
+    /** Restores the board from a previous session. */
+    fun restoreSaved(queues: List<SavedQueue>) {
+        saved.value = queues.takeLast(maxSaved.coerceAtLeast(0))
+    }
+
+    /**
+     * Consulted at every track boundary; returning true stops instead of advancing.
+     *
+     * A hook rather than the queue knowing about sleep timers. "Stop after this one" is the only
+     * thing that has ever wanted it, but the queue's job is deciding what plays next, not deciding
+     * why something should not.
+     */
+    var stopAtBoundary: () -> Boolean = { false }
+
+    /**
+     * Watches for the current track to start, then fetches the next one. See [queuePrefetch].
+     *
+     * Volatile because startCurrent runs on two threads: the UI thread for anything the user
+     * does, and the decode job's own thread when a track ends and onFinished advances the queue.
+     * A stale read cancels a job that is already dead and drops the live one uncancelled, which
+     * accumulates watchers that each fire their own prefetch.
+     */
+    @Volatile
+    private var prefetchJob: Job? = null
+
+    init {
+        // Only at a natural end. A stop or a new selection also ends a track, and those are the user
+        // leaving the song - consulting the timer there would end a session nobody asked to end.
+        player.onFinished = {
+            if (stopAtBoundary()) {
+                // Nothing will advance, so the song fetched ahead is never going to be played.
+                // For a sleep timer that means holding it for the rest of the night.
+                prefetchJob?.cancel()
+                player.dropPrefetch()
+            } else if (state.value.repeat == RepeatMode.ONE) {
+                // Repeat-one loops a song that ends on its own; the next button still moves on.
+                startCurrent()
+            } else {
+                next()
+            }
+        }
+    }
+
+    /**
+     * Replaces the queue with [songs] and starts at [startIndex].
+     *
+     * The whole list is taken rather than just the chosen song, so that clicking a search result
+     * queues everything after it - which is what makes a result list behave like an album rather
+     * than a series of one-song sessions.
+     */
+    /**
+     * @param startAtMs starts the chosen song already this far in, rather than from the beginning.
+     *   Only Listen Together uses a non-zero value, to join a song a host is already partway
+     *   through without seeking from zero first.
+     */
+    fun play(
+        songs: List<SongItem>,
+        startIndex: Int,
+        title: String = "Queue",
+        startAtMs: Long = 0L,
+        /** When the chosen song is the one already playing, it carries on rather than restarting. */
+        keepCurrent: Boolean = false,
+        /** A station or radio, whose songs are not counted in Stats. */
+        station: Boolean = false,
+        /** A Listen Together host's song, played while following them - not counted either. */
+        following: Boolean = false,
+        /** More songs for a radio or station, asked for as it runs low - see [extendIfLow]. */
+        more: (suspend (List<SongItem>) -> List<SongItem>)? = null,
+    ) {
+        if (startIndex !in songs.indices) return
+        val previous = state.value
+        val carryOn = keepCurrent && previous.current?.id == songs[startIndex].id &&
+            player.state.value.let { it !is PlaybackState.Idle && it !is PlaybackState.Failed }
+        // A different queue: the one it replaces is kept aside rather than lost. The same title
+        // again is the same queue being restarted, so it simply takes over.
+        if (previous.songs.isNotEmpty() && previous.title != title) stash(previous, player.positionMs.value)
+        saved.value = saved.value.filter { it.state.title != title }
+        val order = buildOrder(songs.indices.toList(), previous.shuffled, startIndex)
+        state.value = QueueState(
+            songs = songs,
+            index = startIndex,
+            shuffled = previous.shuffled,
+            repeat = previous.repeat,
+            order = order,
+            orderPosition = order.indexOf(startIndex),
+            title = title,
+            fromStation = station,
+            following = following,
+        )
+        this.more = more
+        if (carryOn) {
+            queuePrefetch()
+            extendIfLow()
+        } else {
+            startCurrent(startAtMs)
+        }
+    }
+
+    /** Where the current queue gets more songs - a radio's next page. Null for an ordinary queue. */
+    @Volatile
+    private var more: (suspend (List<SongItem>) -> List<SongItem>)? = null
+
+    @Volatile
+    private var extending = false
+
+    /**
+     * Asks a radio for more once [EXTEND_WHEN_LEFT] songs or fewer are left, so it keeps going
+     * rather than stopping at the end of its first page - in good time, since the songs are added
+     * while one is still playing and the next is then fetched ahead as usual.
+     */
+    private fun extendIfLow() {
+        val source = more ?: return
+        val queue = state.value
+        if (queue.order.size - 1 - queue.orderPosition > EXTEND_WHEN_LEFT || extending) return
+        extending = true
+        scope.launch {
+            try {
+                val added = runCatching { source(queue.songs) }.getOrDefault(emptyList())
+                // A different queue by now: these songs were for the one that has gone.
+                if (more !== source) return@launch
+                val now = state.value
+                val fresh = added.filter { song -> now.songs.none { it.id == song.id } }
+                if (fresh.isEmpty()) return@launch
+                val start = now.songs.size
+                state.value = now.copy(songs = now.songs + fresh, order = now.order + (start until start + fresh.size))
+                // The last song had nothing after it to fetch ahead; now it does.
+                if (now.upcoming == null) queuePrefetch()
+            } finally {
+                extending = false
+            }
+        }
+    }
+
+    /**
+     * Puts [song] straight after whatever is playing.
+     *
+     * Inserted into the play order rather than appended to it, so with shuffle on it is still the
+     * next thing heard - appending would drop it at a random point, which is not what "add to queue"
+     * means to anyone who just chose a song.
+     *
+     * Every later index shifts by one, so the order list has to be rewritten rather than just having
+     * an entry pushed into it.
+     */
+    fun playNext(song: SongItem) {
+        val previous = state.value
+        if (previous.songs.isEmpty()) {
+            play(listOf(song), 0, previous.title)
+            return
+        }
+        val insertAt = previous.index + 1
+        val songs = previous.songs.toMutableList().apply { add(insertAt, song) }
+        val order = previous.order.map { if (it >= insertAt) it + 1 else it }.toMutableList()
+        order.add(previous.orderPosition + 1, insertAt)
+        state.value = previous.copy(songs = songs, order = order)
+    }
+
+    /**
+     * Puts back a queue saved at the end of the last session, without starting it - the phone's
+     * persistent queue. [resume] then plays the current song from where it was.
+     */
+    fun restore(saved: QueueState) {
+        if (saved.songs.isEmpty() || saved.current == null) return
+        more = null
+        state.value = saved
+    }
+
+    /** Starts the current song at [atMs] - for a restored queue's first play. */
+    fun resume(atMs: Long) {
+        if (state.value.current == null) return
+        startCurrent(atMs)
+    }
+
+    /** Puts [song] at the very end of the play order, after everything already queued. */
+    fun addToQueue(song: SongItem) {
+        val previous = state.value
+        if (previous.songs.isEmpty()) {
+            play(listOf(song), 0, previous.title)
+            return
+        }
+        val index = previous.songs.size
+        state.value = previous.copy(songs = previous.songs + song, order = previous.order + index)
+    }
+
+    /** Drag-to-reorder, in the play order the queue list shows. */
+    fun move(from: Int, to: Int) {
+        state.value = QueueEdit.move(state.value, from, to)
+    }
+
+    /**
+     * Takes one entry out of the queue.
+     *
+     * Restarts playback only when the song that was playing is the one removed. Comparing the
+     * current song before and after is what decides that, rather than comparing positions - a
+     * removal above the current entry changes its position without changing what is playing, and
+     * restarting there would interrupt a song for a change that did not touch it.
+     */
+    fun removeAt(position: Int) {
+        val before = state.value.current
+        val after = QueueEdit.removeAt(state.value, position)
+        state.value = after
+        if (after.songs.isEmpty()) {
+            // Nothing left to come, so anything fetched ahead is just memory held for a queue that
+            // no longer exists.
+            player.dropPrefetch()
+            player.stop()
+            return
+        }
+        if (after.current?.id != before?.id) startCurrent()
+    }
+
+    /**
+     * The next song - pressed, or a song ending with repeat off or all. With repeat-one this still
+     * moves on, as the phone's next button does; the loop is only for a song that ends by itself
+     * (see onFinished above). From the last song either loop wraps to the first, so the mini
+     * player's next button, which hides when there is nowhere to go, stays while looping.
+     */
+    fun next() {
+        val queue = state.value
+        if (queue.orderPosition >= queue.order.lastIndex) {
+            if (queue.repeat != RepeatMode.OFF && queue.order.isNotEmpty()) {
+                moveTo(0)
+            } else {
+                // End of the queue: stop rather than wrap. Wrapping unasked turns a finished queue
+                // into an endless one - which is what repeat is for, and it is off.
+                //
+                // Usually nothing was fetched ahead here, since upcoming is null at the last
+                // track. Not always: with repeat-all on, the head was prefetched, and turning
+                // repeat off mid-track leaves it held with nothing to play it.
+                prefetchJob?.cancel()
+                player.dropPrefetch()
+                player.stop()
+            }
+            return
+        }
+        moveTo(queue.orderPosition + 1)
+    }
+
+    fun previous() {
+        val queue = state.value
+        if (queue.orderPosition <= 0) {
+            // Either loop wraps, as next does.
+            if (queue.repeat != RepeatMode.OFF && queue.order.isNotEmpty()) moveTo(queue.order.lastIndex)
+            return
+        }
+        moveTo(queue.orderPosition - 1)
+    }
+
+    /** Jumps to a specific entry, for clicking a row in the queue. */
+    fun jumpTo(index: Int) {
+        val queue = state.value
+        if (index !in queue.songs.indices) return
+        val position = queue.order.indexOf(index)
+        if (position < 0) return
+        moveTo(position)
+    }
+
+    /**
+     * Turns shuffle on or off without interrupting what is playing.
+     *
+     * The current track stays current and becomes the head of the new order, so toggling shuffle
+     * mid-song changes what comes next rather than jumping somewhere else immediately - which is
+     * what the control is actually for.
+     */
+    fun toggleShuffle() {
+        val queue = state.value
+        val shuffled = !queue.shuffled
+        val order = buildOrder(queue.songs.indices.toList(), shuffled, queue.index)
+        state.value = queue.copy(
+            shuffled = shuffled,
+            order = order,
+            orderPosition = order.indexOf(queue.index).coerceAtLeast(0),
+        )
+    }
+
+    /** Straight to [mode] - for Windows' repeat button, which asks for a mode rather than the next one. */
+    fun setRepeat(mode: RepeatMode) {
+        state.value = state.value.copy(repeat = mode)
+    }
+
+    fun cycleRepeat() {
+        state.value = state.value.copy(
+            repeat = when (state.value.repeat) {
+                RepeatMode.OFF -> RepeatMode.ALL
+                RepeatMode.ALL -> RepeatMode.ONE
+                RepeatMode.ONE -> RepeatMode.OFF
+            }
+        )
+    }
+
+    private fun moveTo(orderPosition: Int) {
+        val queue = state.value
+        val index = queue.order.getOrNull(orderPosition) ?: return
+        state.value = queue.copy(index = index, orderPosition = orderPosition)
+        startCurrent()
+    }
+
+    /**
+     * The order tracks are played in: as added, or shuffled with [current] pinned to the front.
+     *
+     * Pinning matters because shuffling the whole list would move the playing track somewhere into
+     * the middle of its own queue, so "previous" would then go somewhere it had never been.
+     */
+    private fun buildOrder(indices: List<Int>, shuffled: Boolean, current: Int): List<Int> =
+        if (!shuffled) indices
+        else listOf(current) + (indices - current).shuffled()
+
+    fun clear() {
+        more = null
+        prefetchJob?.cancel()
+        prefetchJob = null
+        // The queue it was predicting is gone, so holding a song's bytes for it is just memory.
+        player.dropPrefetch()
+        player.stop()
+        state.value = QueueState()
+    }
+
+    private fun startCurrent(startAtMs: Long = 0L) {
+        val song = state.value.current ?: return
+        onPlayed(song)
+        player.play(scope, song.id, song.title, startAtMs)
+        queuePrefetch()
+        extendIfLow()
+    }
+
+    /**
+     * Fetches whatever comes next, once this track is actually playing.
+     *
+     * The wait is the point. Both fetches are whole songs over the same connection, and the one the
+     * user is waiting to hear should not be sharing bandwidth with one they will not need for
+     * another three minutes - starting them together would make every track start slower in order to
+     * make the gap after it shorter.
+     */
+    private fun queuePrefetch() {
+        prefetchJob?.cancel()
+        prefetchJob = scope.launch {
+            // Failure is an exit, not something to wait out: a track that never starts has no
+            // successor worth predicting, and next() will re-derive it if playback recovers.
+            val started = player.state.first {
+                it is PlaybackState.Playing || it is PlaybackState.Failed
+            }
+            if (started !is PlaybackState.Playing) return@launch
+            state.value.upcoming?.let { player.prefetch(scope, it.id) }
+        }
+    }
+}
+
+/** How few songs left in a radio before more are asked for - see PlayerQueue.extendIfLow. */
+private const val EXTEND_WHEN_LEFT = 3
+
+/** A queue put aside, and how far into its song it was. */
+data class SavedQueue(val state: QueueState, val positionMs: Long)

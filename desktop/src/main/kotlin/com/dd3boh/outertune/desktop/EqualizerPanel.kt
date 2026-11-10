@@ -1,0 +1,1048 @@
+/*
+ * Copyright (C) 2026 OuterTune Project
+ *
+ * SPDX-License-Identifier: GPL-3.0
+ */
+
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
+package com.dd3boh.outertune.desktop
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
+
+/**
+ * Range the band sliders cover by default.
+ *
+ * Wider than this, by hand, stops being tone and starts being damage. A fetched AutoEQ correction
+ * can legitimately exceed it though - see [rangeFor] - so this is the floor rather than a limit.
+ */
+private const val MAX_GAIN_DB = 12f
+
+/**
+ * The range to draw, given what the bands actually hold.
+ *
+ * Fixed at twelve, a loaded correction asking for sixteen would show its slider pinned at the top
+ * and read as a milder curve than the one being applied. Rounded up to whole decibels so the scale
+ * does not shift by a fraction every time a slider moves.
+ */
+/**
+ * How long the compressor's dials must sit still before the setting is written.
+ *
+ * Long enough that a dial drag is one write rather than sixty, short enough that closing the window
+ * straight after a change still catches it.
+ */
+private const val PERSIST_SETTLE_MS = 400L
+
+/**
+ * Where "bass" and "treble" stop, in hertz. The phone's own boundaries, so a dial means the same
+ * amount of the spectrum on both.
+ */
+private const val BASS_MAX_HZ = 250f
+private const val TREBLE_MIN_HZ = 4000f
+
+private fun rangeFor(bands: List<EqBand>): Float =
+    maxOf(MAX_GAIN_DB, kotlin.math.ceil(bands.maxOfOrNull { kotlin.math.abs(it.gainDb) } ?: 0f))
+
+/**
+ * How tall each band slider stands.
+ *
+ * Long, because this is the control being aimed at and a short slider makes a 1dB adjustment a
+ * two-pixel movement. The panel used to give them 130dp and the whole thing read as compressed -
+ * twelve stubby sliders under a header, on a screen with room for far more.
+ */
+private val SLIDER_LENGTH = 210.dp
+
+/**
+ * The equaliser: a response curve, a preset row, and one slider per band.
+ *
+ * The graph sits on top because it answers the question the sliders cannot. Twelve slider positions
+ * do not tell you what the filter bank is doing - the bands overlap, so two neighbouring boosts
+ * produce one large hump rather than two small ones, and the only way to see that is to draw the
+ * combined response. See [EqResponse].
+ *
+ * Vertical sliders laid out left to right by frequency, because that is the shape every equaliser
+ * has had for fifty years and the shape people read without being told. A column of horizontal
+ * sliders would be easier to build and would need a legend.
+ *
+ * The gains are held here rather than read back from [Equalizer] on every frame: the audio thread
+ * reads that object continuously, and having the UI poll it would mean two threads reading and
+ * writing the same list for no benefit. This owns the values and pushes them down.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun EqualizerPanel(
+    equalizer: Equalizer,
+    accent: Color,
+    onColour: Color,
+    modifier: Modifier = Modifier,
+    timeStretch: TimeStretch? = null,
+    compressor: Compressor? = null,
+    /**
+     * Whether controls take their colour from their own value.
+     *
+     * Off, everything uses [accent]. It is a strong look and the first thing worth being able to
+     * turn off, which is why it became a setting rather than staying a constant.
+     */
+    colourByValue: Boolean = true,
+    /**
+     * Where the curve and the saved profiles live between runs.
+     *
+     * Null keeps the panel exactly as it was before there was one - every change applies to the
+     * audio and nothing is written down - which is what makes this previewable and testable without
+     * a settings file.
+     */
+    store: EqStore? = null,
+    /** Left/right balance. Null hides the dial rather than showing one that does nothing. */
+    balance: Balance? = null,
+    /** The live spectrum behind the curve, and where playback has reached. Both or neither. */
+    spectrum: VisualizerTap? = null,
+    playedFrames: (() -> Long)? = null,
+) {
+    // Seeded from the store where there is one, because the equaliser itself is restored at
+    // startup rather than when this panel first opens (see Main) - by the time anyone looks at it,
+    // the two already agree.
+    var enabled by remember { mutableStateOf(store?.enabled ?: equalizer.enabled) }
+    var bands by remember { mutableStateOf(store?.bands ?: equalizer.bands()) }
+    var profile by remember { mutableStateOf(store?.activeProfile) }
+    var saved by remember { mutableStateOf(store?.profiles.orEmpty()) }
+    var naming by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+
+    val builtIn = remember { Equalizer.PRESETS.keys.toList() }
+    val names = remember(saved, builtIn) { builtIn + saved.map { it.name }.filterNot { it in builtIn } }
+
+    /**
+     * Everything that changes a gain comes through here, so the audio, the screen and the stored
+     * copy cannot drift apart.
+     *
+     * [toProfile] is which name should end up highlighted: a name to select one, null to leave the
+     * selection alone. Nudging a band leaves it alone deliberately - the chip staying lit while the
+     * curve no longer matches it is what gives Save and "Revert to saved" something to act on. The
+     * alternative, dropping the selection the moment a slider moves, means the only way to keep an
+     * edit is to name a new profile for it.
+     *
+     * [persist] is false while a slider is being dragged. Writing the curve is a synchronous SQLite
+     * write on the Compose thread, and a drag produces one per frame - so the audio follows the
+     * thumb continuously, as it must, and the stored copy is written once when the drag ends.
+     */
+    fun apply(newBands: List<EqBand>, toProfile: String? = null, persist: Boolean = true) {
+        bands = newBands
+        equalizer.setBands(newBands)
+        if (persist) store?.bands = newBands
+        if (toProfile != null) {
+            profile = toProfile
+            store?.activeProfile = toProfile
+        }
+        // Changing a curve without turning the equaliser on would do nothing and look broken.
+        if (!enabled) {
+            enabled = true
+            equalizer.enabled = true
+            store?.enabled = true
+        }
+    }
+
+    fun savedCurve(name: String) = saved.firstOrNull { it.name == name }?.bands
+
+    /** A saved override if there is one, otherwise the built-in curve. Nothing for an unknown name. */
+    fun load(name: String) {
+        val curve = savedCurve(name) ?: EqProfiles.factoryDefault(name) ?: return
+        apply(curve, name)
+    }
+
+    fun save(name: String) {
+        val updated = saved.filterNot { it.name == name } + EqProfile(name, bands)
+        saved = updated
+        store?.profiles = updated
+        profile = name
+        store?.activeProfile = name
+    }
+
+    fun deleteProfile(name: String) {
+        val updated = saved.filterNot { it.name == name }
+        saved = updated
+        store?.profiles = updated
+        if (profile == name) {
+            profile = null
+            store?.activeProfile = null
+        }
+    }
+
+    // Three cards, in the order the phone has them: the equaliser itself, the compressor, then
+    // everything else. Same headings at the same size, because the three are peers - see Android's
+    // PanelTitleStyle - and an equaliser that is switched off folds away rather than leaving twelve
+    // dead faders on screen.
+    Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        EqCard {
+            PanelHeader(title = "Equaliser", onColour = onColour) {
+                if (enabled) {
+                    TextButton(onClick = { apply(Equalizer.DEFAULT_BANDS, "Flat") }) {
+                        Text("Reset", color = accent)
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        equalizer.enabled = it
+                        store?.enabled = it
+                    },
+                )
+            }
+
+            if (enabled) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Scrolls, because there are sixteen built-ins before anyone adds one, and wrapping them
+                // onto three lines would push the sliders off the bottom of the drawer.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().sideScrollable(),
+                ) {
+                    names.forEach { name ->
+                        FilterChip(
+                            selected = profile == name,
+                            onClick = { load(name) },
+                            label = { Text(name) },
+                            // Only on the ones someone made. A built-in cannot be deleted because it is not
+                            // stored - the most that exists for it is an override, and "Revert to default"
+                            // is what removes that.
+                            trailingIcon = if (name !in builtIn) {
+                                {
+                                    Icon(
+                                        imageVector = OuterTuneIcons.close,
+                                        contentDescription = "Delete $name",
+                                        modifier = Modifier.size(16.dp).clickable { deleteProfile(name) },
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                }
+
+                // Only once a profile is selected. With none, every one of these acts on nothing, and a row
+                // of buttons that do nothing reads as a row of buttons that are broken.
+                if (profile != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { profile?.let(::save) }) {
+                            Text("Save", color = accent)
+                        }
+                        // Both of these are undo, and they are different undos: back to what was stored
+                        // under this name, and back to what the name meant before anything was stored.
+                        if (profile?.let { savedCurve(it) } != null) {
+                            TextButton(onClick = { profile?.let(::load) }) {
+                                Text("Revert to saved", color = accent)
+                            }
+                        }
+                        if (profile in builtIn) {
+                            TextButton(
+                                onClick = {
+                                    profile?.let { name ->
+                                        EqProfiles.factoryDefault(name)?.let { apply(it, name) }
+                                    }
+                                },
+                            ) {
+                                Text("Revert to default", color = accent)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    bands.forEachIndexed { index, band ->
+                        val bandColour = if (colourByValue) {
+                            ValueGradient.forValue(band.gainDb, -rangeFor(bands)..rangeFor(bands))
+                        } else {
+                            accent
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(56.dp),
+                        ) {
+                            Text(
+                                // One decimal, because a slider that reads "+3" across a third of its travel
+                                // looks broken. The unit is on the value rather than a header, so a glance
+                                // at one band is self-contained.
+                                text = "%+.1f".format(band.gainDb),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = onColour.copy(alpha = if (band.gainDb == 0f) 0.45f else 0.85f),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(48.dp)
+                                    .height(SLIDER_LENGTH)
+                                    // The wheel moves the band it is over - 0.5 dB a notch, 0.1 with
+                                    // Shift - and goes no further: a scroll here used to reach the
+                                    // player behind and close it.
+                                    .onPointerEvent(PointerEventType.Scroll) { event ->
+                                        val delta = event.changes.first().scrollDelta
+                                        val scrolled = if (delta.y != 0f) delta.y else delta.x
+                                        if (scrolled != 0f) {
+                                            val fine = event.keyboardModifiers.isShiftPressed || delta.y == 0f
+                                            val range = rangeFor(bands)
+                                            val next = (band.gainDb - scrolled * if (fine) 0.1f else 0.5f).coerceIn(-range, range)
+                                            apply(bands.toMutableList().also { it[index] = band.copy(gainDb = next) }, persist = true)
+                                        }
+                                        event.changes.forEach { it.consume() }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Slider(
+                                    value = band.gainDb,
+                                    onValueChange = { value ->
+                                        // No profile name: nudging a band edits the curve under whatever is
+                                        // selected rather than deselecting it, which is what leaves Save and
+                                        // "Revert to saved" something to act on.
+                                        apply(
+                                            bands.toMutableList().also { it[index] = band.copy(gainDb = value) },
+                                            persist = false,
+                                        )
+                                    },
+                                    // Once, at the end of the drag, rather than sixty times a second on the
+                                    // way there - see apply().
+                                    onValueChangeFinished = { store?.bands = bands },
+                                    valueRange = -rangeFor(bands)..rangeFor(bands),
+                                    // Coloured by where this band sits, like every other control here, so
+                                    // the twelve of them together read as the shape of the curve without
+                                    // anyone tracing the thumb positions.
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = bandColour,
+                                        activeTrackColor = bandColour,
+                                        inactiveTrackColor = onColour.copy(alpha = 0.18f),
+                                    ),
+                                    // A channel with a cap in it rather than a line with a dot on it -
+                                    // see Fader.kt. Filled from 0dB outward, because the stock track
+                                    // fills from the minimum, which drew a flat curve as twelve
+                                    // half-full faders: every band looking boosted when none was.
+                                    track = { state ->
+                                        FaderTrack(
+                                            sliderState = state,
+                                            activeColor = bandColour,
+                                            inactiveColor = onColour.copy(alpha = 0.18f),
+                                            centerOrigin = true,
+                                            // A mark every quarter of the range: enough to judge a
+                                            // position against, few enough not to read as a scale.
+                                            detents = 4,
+                                        )
+                                    },
+                                    thumb = { FaderCap(color = bandColour) },
+                                    modifier = Modifier.rotateVertical(SLIDER_LENGTH),
+                                )
+                            }
+                            Text(
+                                // A loaded correction puts bands at 1050Hz or 3300Hz, not at round
+                                // numbers, so "3k" would label two different bands identically. One decimal
+                                // above a kilohertz keeps them distinguishable without going to four digits.
+                                text = when {
+                                    band.freqHz >= 10_000f -> "${(band.freqHz / 1000f).roundToInt()}k"
+                                    band.freqHz >= 1000f -> "%.1fk".format(band.freqHz / 1000f)
+                                    else -> band.freqHz.roundToInt().toString()
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                textAlign = TextAlign.Center,
+                                color = onColour.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Under the faders, as on the phone: they are what is being set, and this is the
+                // picture of what setting them did.
+                EqGraph(
+                    bands = bands,
+                    sampleRate = equalizer.sampleRate,
+                    onColour = onColour,
+                    height = 150.dp,
+                    rangeDb = rangeFor(bands),
+                    spectrum = spectrum,
+                    playedFrames = playedFrames,
+                )
+            }
+        }
+
+        if (compressor != null) {
+            EqCard {
+                CompressorSection(
+                    compressor = compressor,
+                    accent = accent,
+                    onColour = onColour,
+                    colourByValue = colourByValue,
+                    onPersist = store?.let { { prefs -> it.compressor = prefs } },
+                )
+            }
+        }
+
+        EqCard {
+            PanelHeader(title = "Additional settings", onColour = onColour)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Bass and treble are a view over the bands rather than two more filters: the dial
+            // reads the average of the bands it covers and writes that gain to all of them, so it
+            // cannot disagree with the faders above.
+            ToneDials(
+                bands = bands,
+                balance = balance,
+                accent = accent,
+                onColour = onColour,
+                colourByValue = colourByValue,
+                onBandsChange = { apply(it, persist = false) },
+                onBandsSettled = { store?.bands = bands },
+                onBalanceChange = { store?.balance = it },
+            )
+
+            if (timeStretch != null) {
+                Spacer(modifier = Modifier.height(18.dp))
+                PlaybackDials(timeStretch, accent, onColour, colourByValue)
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            AutoEqSearch(accent = accent, onColour = onColour) { fetched, name ->
+                apply(fetched, name)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (naming) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        singleLine = true,
+                        label = { Text("Profile name") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = onColour,
+                            unfocusedTextColor = onColour,
+                            focusedBorderColor = accent,
+                            unfocusedBorderColor = onColour.copy(alpha = 0.4f),
+                            focusedLabelColor = accent,
+                            unfocusedLabelColor = onColour.copy(alpha = 0.6f),
+                            cursorColor = accent,
+                        ),
+                        modifier = Modifier.typingField().weight(1f),
+                    )
+                    TextButton(
+                        enabled = newName.isNotBlank(),
+                        onClick = {
+                            save(newName.trim())
+                            newName = ""
+                            naming = false
+                        },
+                    ) {
+                        Text("Save", color = accent)
+                    }
+                }
+            } else {
+                TextButton(onClick = { naming = true }) {
+                    Text("Save as new profile…", color = accent)
+                }
+            }
+        }
+    }
+}
+
+/** One of the panel's three sections: a rounded, lightly tinted card, as on the phone. */
+@Composable
+private fun EqCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f))
+            .padding(16.dp),
+        content = content,
+    )
+}
+
+/** A card's heading, with whatever controls belong to it on the right. */
+@Composable
+internal fun PanelHeader(
+    title: String,
+    onColour: Color,
+    trailing: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = onColour,
+            modifier = Modifier.weight(1f),
+        )
+        trailing()
+    }
+}
+
+/**
+ * Search AutoEQ for a headphone correction and load it.
+ *
+ * A correction curve is not a preset - it is a measurement of one specific pair of headphones, and
+ * it is the single most effective thing anyone can do to how their music sounds. Everything else in
+ * this panel is taste; this is a known error being cancelled.
+ *
+ * Search runs after a pause rather than on every keystroke. Each query is up to three GitHub
+ * requests, and firing them per character would exhaust an unauthenticated rate limit inside one
+ * headphone name - the listings are cached for the session, but the first pass through has to fetch
+ * them.
+ */
+@Composable
+private fun AutoEqSearch(
+    accent: Color,
+    onColour: Color,
+    onApply: (List<EqBand>, String) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<AutoEq.Headphone>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(query) {
+        if (query.length < 3) {
+            results = emptyList()
+            failed = false
+            return@LaunchedEffect
+        }
+        // Cancelled and restarted on every keystroke, so only the pause after the last one gets
+        // this far.
+        delay(400)
+        searching = true
+        failed = false
+        results = runCatching { AutoEq.search(query) }
+            .onFailure { failed = true }
+            .getOrDefault(emptyList())
+        searching = false
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = "AutoEQ",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = onColour,
+            )
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search headphones", color = onColour.copy(alpha = 0.5f)) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = onColour,
+                    unfocusedTextColor = onColour,
+                    focusedBorderColor = accent,
+                    unfocusedBorderColor = onColour.copy(alpha = 0.3f),
+                    cursorColor = accent,
+                ),
+                modifier = Modifier.typingField().weight(1f),
+            )
+        }
+
+        val status = when {
+            searching -> "Searching..."
+            failed -> "Could not reach AutoEQ. Check the connection and try again."
+            query.length in 1..2 -> "Keep typing..."
+            query.length >= 3 && results.isEmpty() -> "Nothing found for \"$query\" in oratory1990's measurements."
+            else -> null
+        }
+        if (status != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(status, style = MaterialTheme.typography.bodySmall, color = onColour.copy(alpha = 0.6f))
+        }
+
+        if (results.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().sideScrollable(),
+            ) {
+                // Capped, and the cap is stated rather than silently truncating: a search for "HD"
+                // matches most of Sennheiser's catalogue, and a row of two hundred chips is not a
+                // list anyone reads.
+                results.take(30).forEach { headphone ->
+                    AssistChip(
+                        onClick = {
+                            scope.launch {
+                                val curve = AutoEq.fetchCurve(headphone)
+                                if (curve != null) onApply(curve, headphone.name) else failed = true
+                            }
+                        },
+                        label = { Text(headphone.name, maxLines = 1) },
+                    )
+                }
+                if (results.size > 30) {
+                    Text(
+                        text = "+${results.size - 30} more - narrow the search",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = onColour.copy(alpha = 0.6f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The compressor: a switch, five dials, and a meter showing what it is doing.
+ *
+ * All five controls, not a single "amount" slider. A compressor with one knob is guessing at four
+ * values on the user's behalf, and the four it has to guess are exactly the ones that decide whether
+ * it sounds like control or like pumping. Anyone who does not want them can leave the switch off.
+ *
+ * The meter is the part that makes the rest legible. Threshold and ratio describe a rule; gain
+ * reduction is the rule's actual effect on this track, second by second, and without it the dials
+ * are set by reading numbers rather than by listening.
+ */
+@Composable
+private fun CompressorSection(
+    compressor: Compressor,
+    accent: Color,
+    onColour: Color,
+    colourByValue: Boolean,
+    /** Called once the dials have settled, so what is set here survives the window closing. */
+    onPersist: ((CompressorPrefs) -> Unit)? = null,
+) {
+    fun colourFor(value: Float, range: ClosedFloatingPointRange<Float>) =
+        if (colourByValue) ValueGradient.forValue(value, range) else accent
+
+    var enabled by remember { mutableStateOf(compressor.enabled) }
+    var threshold by remember { mutableStateOf(compressor.thresholdDb) }
+    var ratio by remember { mutableStateOf(compressor.ratio) }
+    var attack by remember { mutableStateOf(compressor.attackMs) }
+    var release by remember { mutableStateOf(compressor.releaseMs) }
+    var makeup by remember { mutableStateOf(compressor.makeupGainDb) }
+
+    // After the dials stop moving rather than while they move. A dial drag changes its value every
+    // frame and storing one is a synchronous SQLite write on this thread; restarting this effect on
+    // each change and writing only once it survives the delay collapses a drag into a single write.
+    // The knobs have no end-of-gesture callback to hang this on, which is why it is a delay rather
+    // than an onValueChangeFinished as the band sliders use.
+    if (onPersist != null) {
+        LaunchedEffect(enabled, threshold, ratio, attack, release, makeup) {
+            delay(PERSIST_SETTLE_MS)
+            onPersist(CompressorPrefs(enabled, threshold, ratio, attack, release, makeup))
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        PanelHeader(title = "Compressor", onColour = onColour) {
+            if (enabled) GainReductionMeter(compressor = compressor, accent = accent, onColour = onColour)
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    compressor.enabled = it
+                },
+            )
+        }
+
+        // Folded away while off, as on the phone - five dials that do nothing read as broken.
+        if (!enabled) return@Column
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Two rows, each spread evenly across the full width, which is how the mobile panel lays
+        // these out. Five knobs in one left-aligned row read as a strip bolted on beside the
+        // heading rather than as the compressor's own controls; spread over two rows they read as
+        // a unit, and each knob gets room for its label and readout.
+        //
+        // Shown only while the compressor is on, again as on mobile. Five disabled dials taking up
+        // a third of the panel to say "not in use" is a poor trade for the space.
+        if (enabled) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                RotaryDial(
+                    value = attack,
+                    onValueChange = { attack = it; compressor.attackMs = it },
+                    valueRange = Compressor.MIN_ATTACK_MS..Compressor.MAX_ATTACK_MS,
+                    color = colourFor(attack, Compressor.MIN_ATTACK_MS..Compressor.MAX_ATTACK_MS),
+                    textColor = onColour,
+                    label = "Attack",
+                    // Sub-millisecond attacks are a real setting, and "0 ms" would read as off.
+                    valueLabel = if (attack < 10f) "%.1f ms".format(attack) else "%.0f ms".format(attack),
+                    step = 0.5f,
+                    coarseStep = 10f,
+                    default = Compressor.DEFAULT_ATTACK_MS,
+                )
+                RotaryDial(
+                    value = release,
+                    onValueChange = { release = it; compressor.releaseMs = it },
+                    valueRange = Compressor.MIN_RELEASE_MS..Compressor.MAX_RELEASE_MS,
+                    color = colourFor(release, Compressor.MIN_RELEASE_MS..Compressor.MAX_RELEASE_MS),
+                    textColor = onColour,
+                    label = "Release",
+                    valueLabel = "%.0f ms".format(release),
+                    step = 5f,
+                    coarseStep = 50f,
+                    default = Compressor.DEFAULT_RELEASE_MS,
+                )
+                RotaryDial(
+                    value = ratio,
+                    onValueChange = { ratio = it; compressor.ratio = it },
+                    valueRange = Compressor.MIN_RATIO..Compressor.MAX_RATIO,
+                    color = colourFor(ratio, Compressor.MIN_RATIO..Compressor.MAX_RATIO),
+                    textColor = onColour,
+                    label = "Ratio",
+                    valueLabel = "%.1f:1".format(ratio),
+                    step = 0.1f,
+                    coarseStep = 1f,
+                    default = Compressor.DEFAULT_RATIO,
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                RotaryDial(
+                    value = threshold,
+                    onValueChange = { threshold = it; compressor.thresholdDb = it },
+                    valueRange = Compressor.MIN_THRESHOLD_DB..Compressor.MAX_THRESHOLD_DB,
+                    color = colourFor(threshold, Compressor.MIN_THRESHOLD_DB..Compressor.MAX_THRESHOLD_DB),
+                    textColor = onColour,
+                    label = "Threshold",
+                    valueLabel = "%.1f dB".format(threshold),
+                    step = 0.5f,
+                    coarseStep = 5f,
+                    default = Compressor.DEFAULT_THRESHOLD_DB,
+                )
+                RotaryDial(
+                    value = makeup,
+                    onValueChange = { makeup = it; compressor.makeupGainDb = it },
+                    valueRange = Compressor.MIN_MAKEUP_DB..Compressor.MAX_MAKEUP_DB,
+                    color = colourFor(makeup, Compressor.MIN_MAKEUP_DB..Compressor.MAX_MAKEUP_DB),
+                    textColor = onColour,
+                    label = "Makeup gain",
+                    valueLabel = "+%.1f dB".format(makeup),
+                    step = 0.25f,
+                    coarseStep = 3f,
+                    default = Compressor.DEFAULT_MAKEUP_DB,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * How much the compressor is pulling the signal down, right now.
+ *
+ * Polled on the frame clock rather than driven by the audio thread. The alternative is for the audio
+ * thread to write into composition state, which would make it responsible for scheduling
+ * recomposition - work on a thread with a hard deadline, in service of something the eye cannot
+ * resolve faster than this anyway.
+ *
+ * Falls back rather than snapping: gain reduction is spiky, and a meter that tracks it exactly reads
+ * as a flicker instead of a level. Rising is instant, because a peak that is not shown at its full
+ * height has not been shown.
+ */
+@Composable
+private fun GainReductionMeter(compressor: Compressor, accent: Color, onColour: Color) {
+    var shown by remember { mutableStateOf(0f) }
+    LaunchedEffect(compressor) {
+        while (true) {
+            withFrameMillis {
+                val now = -compressor.currentReductionDb
+                shown = if (now > shown) now else shown + (now - shown) * 0.25f
+            }
+        }
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            modifier = Modifier
+                .width(110.dp)
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(onColour.copy(alpha = 0.15f)),
+        ) {
+            Box(
+                modifier = Modifier
+                    // Full scale at 24dB of reduction, which is more than any musical setting
+                    // reaches - so a meter near the end means something is set wrong.
+                    .fillMaxWidth((shown / 24f).coerceIn(0f, 1f))
+                    .height(8.dp)
+                    .background(accent),
+            )
+        }
+        Text(
+            text = "-%.1f dB".format(shown),
+            style = MaterialTheme.typography.labelSmall,
+            color = onColour.copy(alpha = 0.7f),
+        )
+    }
+}
+
+/**
+ * Tempo and pitch, as two knobs.
+ *
+ * Separate controls rather than one speed setting, because they are separate things once the audio
+ * is being time-stretched rather than merely played faster - see [TimeStretch]. Practising along
+ * with a track wants tempo alone; singing along with one written out of range wants pitch alone.
+ *
+ * Both read out in the units people think in: percent for tempo, semitones for pitch. Semitones with
+ * one decimal, because a tenth of a semitone is roughly where a shift stops being audible as a
+ * retune and starts being audible as being slightly out.
+ */
+/**
+ * Bass, balance and treble.
+ *
+ * The three coarse controls, together, because that is the order they sit in on every tone control
+ * that has ever had a balance knob between them - and because anyone who wants one of them usually
+ * wants a quick nudge rather than the twelve sliders below.
+ *
+ * Bass and treble are not filters. They are a reading of the bands already there: the average gain
+ * of everything at or below [BASS_MAX_HZ], and of everything at or above [TREBLE_MIN_HZ]. Turning
+ * one writes its value onto every band in that range. That is the phone's rule, and it is the only
+ * arrangement where the dials and the sliders cannot contradict each other - two extra shelves would
+ * give a panel whose graph and whose dials tell different stories about the same audio.
+ */
+@Composable
+private fun ToneDials(
+    bands: List<EqBand>,
+    balance: Balance?,
+    accent: Color,
+    onColour: Color,
+    colourByValue: Boolean,
+    onBandsChange: (List<EqBand>) -> Unit,
+    /** Called once the dials stop, so a drag is one stored write rather than one per frame. */
+    onBandsSettled: () -> Unit,
+    onBalanceChange: (Float) -> Unit,
+) {
+    fun colourFor(value: Float, range: ClosedFloatingPointRange<Float>) =
+        if (colourByValue) ValueGradient.forValue(value, range) else accent
+
+    val bassIndices = bands.indices.filter { bands[it].freqHz <= BASS_MAX_HZ }
+    val trebleIndices = bands.indices.filter { bands[it].freqHz >= TREBLE_MIN_HZ }
+    // An AutoEQ correction can have no band at all in one of these ranges, and the average of
+    // nothing is NaN - which would reach the dial as a thumb position and the filter bank as a
+    // gain. Zero stands in, and the dial is left out entirely rather than shown doing nothing.
+    val bassGain = bassIndices.map { bands[it].gainDb }.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f
+    val trebleGain = trebleIndices.map { bands[it].gainDb }.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f
+
+    var pan by remember { mutableStateOf(balance?.value ?: 0f) }
+    val gainRange = -rangeFor(bands)..rangeFor(bands)
+    val panRange = -1f..1f
+
+    // Settled rather than continuous, for the reason CompressorSection gives at length: storing a
+    // value is a synchronous write on this thread, and a dial has no end-of-gesture callback to
+    // hang one on - a wheel notch has no "up" at all. Both effects restart on every change, so a
+    // drag or a spin collapses into a single write once it stops.
+    LaunchedEffect(bassGain, trebleGain) {
+        delay(PERSIST_SETTLE_MS)
+        onBandsSettled()
+    }
+    if (balance != null) {
+        LaunchedEffect(pan) {
+            delay(PERSIST_SETTLE_MS)
+            onBalanceChange(pan)
+        }
+    }
+
+    fun setRange(indices: List<Int>, gain: Float) {
+        onBandsChange(bands.mapIndexed { i, band -> if (i in indices) band.copy(gainDb = gain) else band })
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        // Each dial in an equal third, so this row and the tempo/pitch row below share columns.
+        if (bassIndices.isNotEmpty()) Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            RotaryDial(
+                value = bassGain,
+                onValueChange = { setRange(bassIndices, it) },
+                valueRange = gainRange,
+                color = colourFor(bassGain, gainRange),
+                textColor = onColour,
+                centeredAt = 0f,
+                label = "Bass",
+                valueLabel = "%+.1f dB".format(bassGain),
+                step = 0.5f,
+                coarseStep = 2f,
+                default = 0f,
+            )
+        }
+        if (balance != null) Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            RotaryDial(
+                value = pan,
+                onValueChange = { pan = it; balance.value = it },
+                valueRange = panRange,
+                color = colourFor(pan, panRange),
+                textColor = onColour,
+                centeredAt = 0f,
+                label = "Balance",
+                // "L 40" rather than "-0.4": nobody thinks of balance as a signed number, and the
+                // sign alone leaves which way is which to be worked out from the dial.
+                valueLabel = when {
+                    pan < -0.005f -> "L %.0f".format(-pan * 100)
+                    pan > 0.005f -> "R %.0f".format(pan * 100)
+                    else -> "Centre"
+                },
+                step = 0.02f,
+                coarseStep = 0.1f,
+                default = 0f,
+            )
+        }
+        if (trebleIndices.isNotEmpty()) Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            RotaryDial(
+                value = trebleGain,
+                onValueChange = { setRange(trebleIndices, it) },
+                valueRange = gainRange,
+                color = colourFor(trebleGain, gainRange),
+                textColor = onColour,
+                centeredAt = 0f,
+                label = "Treble",
+                valueLabel = "%+.1f dB".format(trebleGain),
+                step = 0.5f,
+                coarseStep = 2f,
+                default = 0f,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaybackDials(
+    timeStretch: TimeStretch,
+    accent: Color,
+    onColour: Color,
+    colourByValue: Boolean,
+) {
+    fun colourFor(value: Float, range: ClosedFloatingPointRange<Float>) =
+        if (colourByValue) ValueGradient.forValue(value, range) else accent
+
+    // Mirrored into composition state for the same reason the gains are: the audio thread reads the
+    // TimeStretch continuously, and having the UI poll it would put two threads on the same field
+    // for no benefit.
+    var tempo by remember { mutableStateOf(timeStretch.tempo) }
+    var pitch by remember { mutableStateOf(timeStretch.pitchSemitones) }
+
+    val tempoRange = TimeStretch.MIN_TEMPO..TimeStretch.MAX_TEMPO
+    val pitchRange = TimeStretch.MIN_SEMITONES..TimeStretch.MAX_SEMITONES
+
+    Row(
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { RotaryDial(
+            value = tempo,
+            onValueChange = { tempo = it; timeStretch.tempo = it },
+            valueRange = tempoRange,
+            color = ValueGradient.forValue(tempo, tempoRange),
+            textColor = onColour,
+            label = "Tempo",
+            valueLabel = "%.0f%%".format(tempo * 100),
+            // Half a percent a notch. The fine adjustment this exists for is the couple of percent
+            // that brings a track into step with something else, and a dial moving in five percent
+            // jumps cannot express it.
+            step = 0.005f,
+            coarseStep = 0.05f,
+            centeredAt = 1f,
+        ) }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { RotaryDial(
+            value = pitch,
+            onValueChange = { pitch = it; timeStretch.pitchSemitones = it },
+            valueRange = pitchRange,
+            color = ValueGradient.forValue(pitch, pitchRange),
+            textColor = onColour,
+            label = "Pitch",
+            valueLabel = "%+.1f st".format(pitch),
+            step = 0.1f,
+            coarseStep = 1f,
+            centeredAt = 0f,
+        ) }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(
+            text = "Scroll to turn.\nShift for coarse steps.\nDouble-click to reset.",
+            style = MaterialTheme.typography.bodySmall,
+            color = onColour.copy(alpha = 0.6f),
+        ) }
+    }
+}
+
+/**
+ * Turns a horizontal slider on its side.
+ *
+ * A rotated layer rather than a hand-drawn vertical control. Compose has no vertical slider, and
+ * drawing one means also handling drag, keyboard focus and accessibility by hand - whereas pointer
+ * input is transformed by the layer, so a rotated slider still drags correctly.
+ *
+ * [requiredWidth] is what makes it work: it lets the slider lay itself out at its full horizontal
+ * length while the parent box only reserves the narrow column the rotation actually occupies.
+ * Without it the slider would be squeezed into the column's width and then rotated, ending up
+ * stubby.
+ */
+private fun Modifier.rotateVertical(length: Dp): Modifier = this
+    .requiredWidth(length)
+    .graphicsLayer { rotationZ = -90f }

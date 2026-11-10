@@ -1,0 +1,1150 @@
+package com.zionhuang.innertube
+
+import com.zionhuang.innertube.models.AccountInfo
+import com.zionhuang.innertube.models.AlbumItem
+import com.zionhuang.innertube.models.Artist
+import com.zionhuang.innertube.models.ArtistItem
+import com.zionhuang.innertube.models.BrowseEndpoint
+import com.zionhuang.innertube.models.GridRenderer
+import com.zionhuang.innertube.models.MusicCarouselShelfRenderer
+import com.zionhuang.innertube.models.MusicShelfRenderer
+import com.zionhuang.innertube.models.PlaylistItem
+import com.zionhuang.innertube.models.SearchSuggestions
+import com.zionhuang.innertube.models.SongItem
+import com.zionhuang.innertube.models.WatchEndpoint
+import com.zionhuang.innertube.models.WatchEndpoint.WatchEndpointMusicSupportedConfigs.WatchEndpointMusicConfig.Companion.MUSIC_VIDEO_TYPE_ATV
+import com.zionhuang.innertube.models.YTItem
+import com.zionhuang.innertube.models.YouTubeClient
+import com.zionhuang.innertube.models.YouTubeClient.Companion.IOS
+import com.zionhuang.innertube.models.YouTubeClient.Companion.WEB
+import com.zionhuang.innertube.models.YouTubeClient.Companion.WEB_REMIX
+import com.zionhuang.innertube.models.YouTubeLocale
+import com.zionhuang.innertube.models.getContinuation
+import com.zionhuang.innertube.models.getItems
+import com.zionhuang.innertube.models.oddElements
+import com.zionhuang.innertube.models.response.AccountMenuResponse
+import com.zionhuang.innertube.models.response.BrowseResponse
+import com.zionhuang.innertube.models.response.CreatePlaylistResponse
+import com.zionhuang.innertube.models.response.GetQueueResponse
+import com.zionhuang.innertube.models.response.GetSearchSuggestionsResponse
+import com.zionhuang.innertube.models.response.NextResponse
+import com.zionhuang.innertube.models.response.PlayerResponse
+import com.zionhuang.innertube.models.response.SearchResponse
+import com.zionhuang.innertube.models.response.TimedText3Response
+import com.zionhuang.innertube.pages.AlbumPage
+import com.zionhuang.innertube.pages.ArtistItemsContinuationPage
+import com.zionhuang.innertube.pages.ArtistItemsPage
+import com.zionhuang.innertube.pages.ArtistPage
+import com.zionhuang.innertube.pages.BrowseResult
+import com.zionhuang.innertube.pages.ExplorePage
+import com.zionhuang.innertube.pages.HistoryPage
+import com.zionhuang.innertube.pages.HomePage
+import com.zionhuang.innertube.pages.LibraryContinuationPage
+import com.zionhuang.innertube.pages.LibraryPage
+import com.zionhuang.innertube.pages.MoodAndGenres
+import com.zionhuang.innertube.pages.NewReleaseAlbumPage
+import com.zionhuang.innertube.pages.NextPage
+import com.zionhuang.innertube.pages.NextResult
+import com.zionhuang.innertube.pages.PlaylistContinuationPage
+import com.zionhuang.innertube.pages.PlaylistPage
+import com.zionhuang.innertube.pages.RelatedPage
+import com.zionhuang.innertube.pages.SearchPage
+import com.zionhuang.innertube.pages.SearchResult
+import com.zionhuang.innertube.pages.SearchSuggestionPage
+import com.zionhuang.innertube.pages.SearchSummary
+import com.zionhuang.innertube.pages.SearchSummaryPage
+import io.ktor.client.call.body
+import io.ktor.client.request.parameter
+import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import java.net.Proxy
+import kotlin.random.Random
+
+/**
+ * Parse useful data with [InnerTube] sending requests.
+ * Modified from [ViMusic](https://github.com/vfsfitvnm/ViMusic)
+ */
+object YouTube {
+    private val innerTube = InnerTube()
+
+    var locale: YouTubeLocale
+        get() = innerTube.locale
+        set(value) {
+            innerTube.locale = value
+        }
+    var visitorData: String?
+        get() = innerTube.visitorData
+        set(value) {
+            innerTube.visitorData = value
+        }
+    var dataSyncId: String?
+        get() = innerTube.dataSyncId
+        set(value) {
+            innerTube.dataSyncId = value
+        }
+    var cookie: String?
+        get() = innerTube.cookie
+        set(value) {
+            innerTube.cookie = value
+        }
+    var proxy: Proxy?
+        get() = innerTube.proxy
+        set(value) {
+            innerTube.proxy = value
+        }
+    var useLoginForBrowse: Boolean
+        get() = innerTube.useLoginForBrowse
+        set(value) {
+            innerTube.useLoginForBrowse = value
+        }
+
+    suspend fun searchSuggestions(query: String): Result<SearchSuggestions> = runCatching {
+        val response = innerTube.getSearchSuggestions(WEB_REMIX, query).body<GetSearchSuggestionsResponse>()
+        SearchSuggestions(
+            queries = response.contents?.getOrNull(0)?.searchSuggestionsSectionRenderer?.contents?.mapNotNull { content ->
+                content.searchSuggestionRenderer?.suggestion?.runs?.joinToString(separator = "") { it.text }
+            }.orEmpty(),
+            recommendedItems = response.contents?.getOrNull(1)?.searchSuggestionsSectionRenderer?.contents?.mapNotNull {
+                it.musicResponsiveListItemRenderer?.let { renderer ->
+                    SearchSuggestionPage.fromMusicResponsiveListItemRenderer(renderer)
+                }
+            }.orEmpty()
+        )
+    }
+
+    suspend fun searchSummary(query: String): Result<SearchSummaryPage> = runCatching {
+        val response = innerTube.search(WEB_REMIX, query).body<SearchResponse>()
+        val sections = response.contents?.tabbedSearchResultsRenderer?.tabs?.firstOrNull()
+            ?.tabRenderer?.content?.sectionListRenderer?.contents.orEmpty()
+
+        val summaries = mutableListOf<SearchSummary>()
+        for (content in sections) {
+            when {
+                content.musicCardShelfRenderer != null -> {
+                    val items = listOfNotNull(SearchSummaryPage.fromMusicCardShelfRenderer(content.musicCardShelfRenderer))
+                        .plus(
+                            content.musicCardShelfRenderer.contents
+                                ?.mapNotNull { it.musicResponsiveListItemRenderer }
+                                ?.mapNotNull(SearchSummaryPage.Companion::fromMusicResponsiveListItemRenderer)
+                                .orEmpty()
+                        )
+                        .distinctBy { it.id }
+                    if (items.isNotEmpty()) {
+                        summaries += SearchSummary(
+                            title = content.musicCardShelfRenderer.header?.musicCardShelfHeaderBasicRenderer?.title?.runs?.firstOrNull()?.text ?: "",
+                            items = items
+                        )
+                    }
+                }
+
+                content.musicShelfRenderer != null -> {
+                    val items = content.musicShelfRenderer.contents?.getItems()
+                        ?.mapNotNull { SearchSummaryPage.fromMusicResponsiveListItemRenderer(it) }
+                        ?.distinctBy { it.id }
+                        .orEmpty()
+                    if (items.isNotEmpty()) {
+                        summaries += SearchSummary(
+                            title = content.musicShelfRenderer.title?.runs?.firstOrNull()?.text ?: "",
+                            items = items
+                        )
+                    }
+                }
+
+                // Newer responses wrap individual results in itemSectionRenderer instead of
+                // titled shelves; group those items by type into separate summary sections.
+                content.itemSectionRenderer != null -> {
+                    val items = content.itemSectionRenderer.contents?.getItems()
+                        ?.mapNotNull { SearchSummaryPage.fromMusicResponsiveListItemRenderer(it) }
+                        .orEmpty()
+                    summaries += groupSearchItemsByType(items)
+                }
+            }
+        }
+
+        // Merge sections that share the same title (e.g. items split across many itemSectionRenderers).
+        val merged = summaries
+            .filter { it.items.isNotEmpty() }
+            .groupBy { it.title }
+            .map { (title, group) -> SearchSummary(title = title, items = group.flatMap { it.items }.distinctBy { it.id }) }
+
+        SearchSummaryPage(summaries = merged)
+    }
+
+    private fun groupSearchItemsByType(items: List<YTItem>): List<SearchSummary> =
+        items.groupBy { item ->
+            when (item) {
+                is SongItem -> "Songs"
+                is AlbumItem -> "Albums"
+                is ArtistItem -> "Artists"
+                is PlaylistItem -> "Playlists"
+                else -> "Other"
+            }
+        }.map { (title, group) -> SearchSummary(title = title, items = group) }
+
+    suspend fun search(query: String, filter: SearchFilter): Result<SearchResult> = runCatching {
+        val response = innerTube.search(WEB_REMIX, query, filter.value).body<SearchResponse>()
+        SearchResult(
+            items = response.contents?.tabbedSearchResultsRenderer?.tabs?.firstOrNull()
+                ?.tabRenderer?.content?.sectionListRenderer?.contents?.lastOrNull()
+                ?.musicShelfRenderer?.contents?.getItems()?.mapNotNull {
+                    SearchPage.toYTItem(it)
+                }.orEmpty(),
+            continuation = response.contents?.tabbedSearchResultsRenderer?.tabs?.firstOrNull()
+                ?.tabRenderer?.content?.sectionListRenderer?.contents?.lastOrNull()
+                ?.musicShelfRenderer?.continuations?.getContinuation()
+        )
+    }
+
+    suspend fun searchContinuation(continuation: String): Result<SearchResult> = runCatching {
+        val response = innerTube.search(WEB_REMIX, continuation = continuation).body<SearchResponse>()
+        SearchResult(
+            items = response.continuationContents?.musicShelfContinuation?.contents
+                ?.mapNotNull {
+                    SearchPage.toYTItem(it.musicResponsiveListItemRenderer)
+                }!!,
+            continuation = response.continuationContents.musicShelfContinuation.continuations?.getContinuation()
+        )
+    }
+
+    /**
+     * An album, asked for again as if from the US when the content country cannot have it.
+     *
+     * Some albums are withheld from some countries - or kept for Premium there - while the US
+     * catalogue lists them, and YouTube answers with a page that has no album on it. The US is the
+     * least restricted, so a page that fails here is tried once from there before giving up.
+     * Only the page: whether the songs then play is up to where the connection is, not this.
+     */
+    suspend fun album(browseId: String, withSongs: Boolean = true): Result<AlbumPage> {
+        val here = albumFrom(browseId, withSongs, gl = null)
+        if (here.isSuccess || locale.gl.equals(OPEN_REGION, ignoreCase = true)) return here
+        // Only when YouTube answered with a page that had no album on it - what a withheld album
+        // looks like. Offline, a timeout or being rate-limited is not a region problem, and asking
+        // again from the US would only double the wait before the same failure.
+        val error = here.exceptionOrNull()
+        if (error !is NullPointerException && error !is IllegalStateException) return here
+        return albumFrom(browseId, withSongs, OPEN_REGION).takeIf { it.isSuccess } ?: here
+    }
+
+    /** The least restricted catalogue - see [album]. */
+    private const val OPEN_REGION = "US"
+
+    private suspend fun albumFrom(browseId: String, withSongs: Boolean, gl: String?): Result<AlbumPage> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, browseId, gl = gl).body<BrowseResponse>()
+        val playlistId = response.microformat?.microformatDataRenderer?.urlCanonical?.substringAfterLast('=')!!
+        AlbumPage(
+            album = AlbumItem(
+                browseId = browseId,
+                playlistId = playlistId,
+                title = response.contents?.twoColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.musicResponsiveHeaderRenderer?.title?.runs?.firstOrNull()?.text!!,
+                artists = response.contents.twoColumnBrowseResultsRenderer.tabs.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.musicResponsiveHeaderRenderer?.straplineTextOne?.runs?.oddElements()?.map {
+                    Artist(
+                        name = it.text,
+                        id = it.navigationEndpoint?.browseEndpoint?.browseId
+                    )
+                }!!,
+                year = response.contents.twoColumnBrowseResultsRenderer.tabs.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.musicResponsiveHeaderRenderer?.subtitle?.runs?.lastOrNull()?.text?.toIntOrNull(),
+                thumbnail = response.contents.twoColumnBrowseResultsRenderer.tabs.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.musicResponsiveHeaderRenderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.lastOrNull()?.url!!,
+            ),
+            songs = if (withSongs) albumSongs(playlistId, gl).getOrThrow() else emptyList(),
+            otherVersions = emptyList(),
+        ).let { page ->
+            val (versions, similar) = albumShelves(page.album.title, browseId, albumShelvesOf(response))
+            page.copy(otherVersions = versions, similarAlbums = similar)
+        }
+    }
+
+    /** The albums on each of the page's carousel shelves, shelf by shelf, in the page's order. */
+    private fun albumShelvesOf(response: BrowseResponse): List<List<AlbumItem>> =
+        response.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents.orEmpty()
+            .mapNotNull { it.musicCarouselShelfRenderer?.contents }
+            .map { shelf ->
+                shelf.mapNotNull { it.musicTwoRowItemRenderer }
+                    .mapNotNull(NewReleaseAlbumPage::fromMusicTwoRowItemRenderer)
+            }
+            .filter { it.isNotEmpty() }
+
+    /**
+     * Splits an album page's shelves into the album's other versions and similar albums.
+     *
+     * Other versions - deluxe, remastered, live, Taylor's Version - are albums whose title, edition
+     * labels aside, is this one's, from any shelf. Not simply the second shelf, which is what this
+     * used to take: an album without other versions has a recommendations shelf there instead, and
+     * similar albums by other artists were shown under "Other versions".
+     *
+     * Similar albums are the rest of the page's recommendations ("Releases for you", "You might
+     * also like"): every album on a shelf that is not the versions shelf, less this album and its
+     * versions. The versions shelf is told apart by what is on it - mostly versions of this album -
+     * not by its header, which comes back in the user's language; so an edition with a renamed
+     * title that YouTube put on that shelf is not taken for a recommendation.
+     */
+    internal fun albumShelves(
+        title: String,
+        browseId: String,
+        shelves: List<List<AlbumItem>>,
+    ): Pair<List<AlbumItem>, List<AlbumItem>> {
+        val base = baseAlbumTitle(title)
+        if (base.isEmpty()) return emptyList<AlbumItem>() to emptyList()
+        fun isVersion(album: AlbumItem) = baseAlbumTitle(album.title) == base
+        val versions = shelves.flatten()
+            .filter { it.browseId != browseId && isVersion(it) }
+            .distinctBy { it.browseId }
+        val similar = shelves
+            .filterNot { shelf -> shelf.count(::isVersion) * 2 > shelf.size }
+            .flatten()
+            .filter { it.browseId != browseId && !isVersion(it) }
+            .distinctBy { it.browseId }
+        return versions to similar
+    }
+
+    /** "1989 (Taylor's Version)", "1989 [Deluxe]" and "1989 - Live" are all "1989". */
+    internal fun baseAlbumTitle(title: String): String = title
+        .replace(Regex("""\s*[(\[{][^)\]}]*[)\]}]"""), " ")
+        .replace(Regex("""\s+[-–—]\s+.*$"""), "")
+        .lowercase()
+        .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
+        .trim()
+
+    suspend fun albumSongs(playlistId: String, gl: String? = null): Result<List<SongItem>> = runCatching {
+        var response = innerTube.browse(WEB_REMIX, "VL$playlistId", gl = gl).body<BrowseResponse>()
+        val songs = response.contents?.twoColumnBrowseResultsRenderer
+            ?.secondaryContents?.sectionListRenderer
+            ?.contents?.firstOrNull()
+            ?.musicPlaylistShelfRenderer?.contents?.getItems()
+            ?.mapNotNull {
+                AlbumPage.getSong(it)
+            }!!
+            .toMutableList()
+        var continuation = response.contents.twoColumnBrowseResultsRenderer.secondaryContents.sectionListRenderer
+            .contents.firstOrNull()?.musicPlaylistShelfRenderer?.contents?.getContinuation()
+        while (continuation != null) {
+            response = innerTube.browse(
+                client = WEB_REMIX,
+                continuation = continuation,
+                gl = gl,
+            ).body<BrowseResponse>()
+            val continuationItems = response.onResponseReceivedActions?.firstOrNull()
+                ?.appendContinuationItemsAction?.continuationItems
+            if (continuationItems != null) {
+                songs += continuationItems.getItems().mapNotNull { AlbumPage.getSong(it) }
+            }
+            continuation = response.continuationContents?.musicPlaylistShelfContinuation?.continuations?.getContinuation()
+        }
+        songs
+    }
+
+    suspend fun artist(browseId: String): Result<ArtistPage> = runCatching {
+        // YTM credits the same artist under both a plain channel id and an MPLA-prefixed browse id
+        // of the same channel. Only the plain form browses, so a credit stored in the prefixed form
+        // would otherwise open nothing. Normalised at the single point that fetches an artist page,
+        // rather than at each of the screens and menus that navigate to one.
+        val id = if (browseId.startsWith("MPLAUC")) browseId.removePrefix("MPLA") else browseId
+        val response = innerTube.browse(WEB_REMIX, id).body<BrowseResponse>()
+
+        ArtistPage(
+            artist = ArtistItem(
+                id = browseId,
+                title = response.header?.musicImmersiveHeaderRenderer?.title?.runs?.firstOrNull()?.text
+                    ?: response.header?.musicVisualHeaderRenderer?.title?.runs?.firstOrNull()?.text
+                    ?: response.header?.musicHeaderRenderer?.title?.runs?.firstOrNull()?.text!!,
+                thumbnail = response.header?.musicImmersiveHeaderRenderer?.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl()
+                    ?: response.header?.musicVisualHeaderRenderer?.foregroundThumbnail?.musicThumbnailRenderer?.getThumbnailUrl()
+                    ?: response.header?.musicDetailHeaderRenderer?.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl(),
+                channelId = response.header?.musicImmersiveHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer?.channelId,
+                playEndpoint = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+                    ?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.musicShelfRenderer
+                    ?.contents?.firstOrNull()?.musicResponsiveListItemRenderer?.overlay?.musicItemThumbnailOverlayRenderer
+                    ?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint,
+                shuffleEndpoint = response.header?.musicImmersiveHeaderRenderer?.playButton?.buttonRenderer?.navigationEndpoint?.watchEndpoint
+                    ?: response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer
+                        ?.contents?.firstOrNull()?.musicShelfRenderer?.contents?.firstOrNull()?.musicResponsiveListItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint,
+                radioEndpoint = response.header?.musicImmersiveHeaderRenderer?.startRadioButton?.buttonRenderer?.navigationEndpoint?.watchEndpoint
+            ),
+            sections = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+                ?.tabRenderer?.content?.sectionListRenderer?.contents
+                ?.mapNotNull(ArtistPage::fromSectionListRendererContent)!!,
+            description = response.header?.musicImmersiveHeaderRenderer?.description?.runs?.firstOrNull()?.text
+        )
+    }
+
+    suspend fun artistItems(endpoint: BrowseEndpoint): Result<ArtistItemsPage> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, endpoint.browseId, endpoint.params).body<BrowseResponse>()
+        val gridRenderer = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+            ?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()
+            ?.gridRenderer
+        if (gridRenderer != null) {
+            ArtistItemsPage(
+                title = gridRenderer.header?.gridHeaderRenderer?.title?.runs?.firstOrNull()?.text.orEmpty(),
+                items = gridRenderer.items.mapNotNull {
+                    it.musicTwoRowItemRenderer?.let { renderer ->
+                        ArtistItemsPage.fromMusicTwoRowItemRenderer(renderer)
+                    }
+                },
+                continuation = gridRenderer.continuations?.getContinuation()
+            )
+        } else {
+            val musicPlaylistShelfRenderer = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+                ?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()
+                ?.musicPlaylistShelfRenderer
+            ArtistItemsPage(
+                title = response.header?.musicHeaderRenderer?.title?.runs?.firstOrNull()?.text!!,
+                items = musicPlaylistShelfRenderer?.contents?.getItems()?.mapNotNull {
+                        ArtistItemsPage.fromMusicResponsiveListItemRenderer(it)
+                    }!!,
+                continuation = musicPlaylistShelfRenderer.contents.getContinuation()
+            )
+        }
+    }
+
+    suspend fun artistItemsContinuation(continuation: String): Result<ArtistItemsContinuationPage> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, continuation = continuation).body<BrowseResponse>()
+
+        when {
+            response.continuationContents?.gridContinuation != null -> {
+                val gridContinuation = response.continuationContents.gridContinuation
+                ArtistItemsContinuationPage(
+                    items = gridContinuation.items.mapNotNull {
+                        it.musicTwoRowItemRenderer?.let { renderer ->
+                            ArtistItemsPage.fromMusicTwoRowItemRenderer(renderer)
+                        }
+                    },
+                    continuation = gridContinuation.continuations?.getContinuation()
+                )
+            }
+
+            response.continuationContents?.musicPlaylistShelfContinuation != null -> {
+                val musicPlaylistShelfContinuation = response.continuationContents.musicPlaylistShelfContinuation
+                ArtistItemsContinuationPage(
+                    items = musicPlaylistShelfContinuation.contents.getItems().mapNotNull {
+                        ArtistItemsPage.fromMusicResponsiveListItemRenderer(it)
+                    },
+                    continuation = musicPlaylistShelfContinuation.continuations?.getContinuation()
+                )
+            }
+
+            else -> {
+                val continuationItems = response.onResponseReceivedActions?.firstOrNull()
+                    ?.appendContinuationItemsAction?.continuationItems
+                ArtistItemsContinuationPage(
+                    items = continuationItems?.getItems()?.mapNotNull {
+                        ArtistItemsPage.fromMusicResponsiveListItemRenderer(it)
+                    }!!,
+                    continuation = continuationItems.getContinuation()
+                )
+            }
+        }
+    }
+
+    suspend fun playlist(playlistId: String): Result<PlaylistPage> = runCatching {
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            browseId = "VL$playlistId",
+            setLogin = true
+        ).body<BrowseResponse>()
+
+        val base = response.contents?.twoColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()
+        val header = base?.musicResponsiveHeaderRenderer ?: base?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicResponsiveHeaderRenderer
+
+        val editable = base?.musicEditablePlaylistDetailHeaderRenderer != null
+
+        PlaylistPage(
+            playlist = PlaylistItem(
+                id = playlistId,
+                title = header?.title?.runs?.firstOrNull()?.text ?: "",
+                author = header?.straplineTextOne?.runs?.firstOrNull()?.let {
+                    Artist(
+                        name = it.text,
+                        id = it.navigationEndpoint?.browseEndpoint?.browseId
+                    )
+                },
+                songCountText = header?.secondSubtitle?.runs?.firstOrNull()?.text,
+                thumbnail = response.background?.musicThumbnailRenderer?.getThumbnailUrl(),
+                playEndpoint = header?.buttons?.getOrNull(1)?.musicPlayButtonRenderer
+                    ?.playNavigationEndpoint?.watchEndpoint,
+                shuffleEndpoint = header?.buttons?.getOrNull(2)?.menuRenderer?.items?.find {
+                    it.menuNavigationItemRenderer?.icon?.iconType == "MUSIC_SHUFFLE"
+                }?.menuNavigationItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint,
+                radioEndpoint = header?.buttons?.getOrNull(2)?.menuRenderer?.items?.find {
+                    it.menuNavigationItemRenderer?.icon?.iconType == "MIX"
+                }?.menuNavigationItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint,
+                isEditable = editable
+            ),
+            songs = response.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer
+                ?.contents?.firstOrNull()?.musicPlaylistShelfRenderer?.contents?.getItems()?.mapNotNull {
+                    PlaylistPage.fromMusicResponsiveListItemRenderer(it)
+                } ?: emptyList(),
+            songsContinuation = response.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer
+                ?.contents?.firstOrNull()?.musicPlaylistShelfRenderer?.contents?.getContinuation(),
+            continuation = response.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer
+                ?.continuations?.getContinuation()
+        )
+    }
+
+    suspend fun playlistContinuation(continuation: String) = runCatching {
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            continuation = continuation,
+            setLogin = true
+        ).body<BrowseResponse>()
+
+        val musicPlaylistShelfContinuation = response.continuationContents?.musicPlaylistShelfContinuation
+        if (musicPlaylistShelfContinuation != null) {
+            PlaylistContinuationPage(
+                songs = musicPlaylistShelfContinuation.contents.getItems().mapNotNull {
+                    PlaylistPage.fromMusicResponsiveListItemRenderer(it)
+                },
+                continuation = musicPlaylistShelfContinuation.continuations?.getContinuation()
+            )
+        } else {
+            val continuationItems = response.onResponseReceivedActions?.firstOrNull()
+                ?.appendContinuationItemsAction?.continuationItems
+            PlaylistContinuationPage(
+                songs = continuationItems?.getItems()?.mapNotNull {
+                        PlaylistPage.fromMusicResponsiveListItemRenderer(it)
+                    } ?: emptyList(),
+                continuation = continuationItems?.getContinuation()
+            )
+        }
+    }
+
+    suspend fun home(continuation: String? = null, params: String? = null): Result<HomePage> = runCatching {
+        if (continuation != null) {
+            return@runCatching homeContinuation(continuation).getOrThrow()
+        }
+
+        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_home", params = params).body<BrowseResponse>()
+        val continuation = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+            ?.tabRenderer?.content?.sectionListRenderer?.continuations?.getContinuation()
+        val sectionListRender = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+            ?.tabRenderer?.content?.sectionListRenderer
+            val sections = sectionListRender?.contents!!
+            .mapNotNull { it.musicCarouselShelfRenderer }
+            .mapNotNull {
+                HomePage.Section.fromMusicCarouselShelfRenderer(it)
+            }.toMutableList()
+        val chips = sectionListRender.header?.chipCloudRenderer?.chips?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
+        HomePage(chips, sections, continuation)
+    }
+
+    private suspend fun homeContinuation(continuation: String): Result<HomePage> = runCatching {
+        val response =
+            innerTube.browse(WEB_REMIX, continuation = continuation).body<BrowseResponse>()
+        val continuation =
+            response.continuationContents?.sectionListContinuation?.continuations?.getContinuation()
+        HomePage(
+            null,
+            response.continuationContents?.sectionListContinuation?.contents
+            ?.mapNotNull { it.musicCarouselShelfRenderer }
+            ?.mapNotNull {
+                HomePage.Section.fromMusicCarouselShelfRenderer(it)
+            }.orEmpty(), continuation
+        )
+    }
+
+    suspend fun explore(): Result<ExplorePage> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_explore").body<BrowseResponse>()
+        ExplorePage(
+            newReleaseAlbums = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.find {
+                it.musicCarouselShelfRenderer?.header?.musicCarouselShelfBasicHeaderRenderer?.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint?.browseId == "FEmusic_new_releases_albums"
+            }?.musicCarouselShelfRenderer?.contents
+                ?.mapNotNull { it.musicTwoRowItemRenderer }
+                ?.mapNotNull(NewReleaseAlbumPage::fromMusicTwoRowItemRenderer).orEmpty(),
+            moodAndGenres = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.find {
+                it.musicCarouselShelfRenderer?.header?.musicCarouselShelfBasicHeaderRenderer?.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint?.browseId == "FEmusic_moods_and_genres"
+            }?.musicCarouselShelfRenderer?.contents
+                ?.mapNotNull { it.musicNavigationButtonRenderer }
+                ?.mapNotNull(MoodAndGenres.Companion::fromMusicNavigationButtonRenderer)
+                .orEmpty()
+        )
+    }
+
+    suspend fun newReleaseAlbums(): Result<List<AlbumItem>> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_new_releases_albums").body<BrowseResponse>()
+        response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.gridRenderer?.items
+            ?.mapNotNull { it.musicTwoRowItemRenderer }
+            ?.mapNotNull(NewReleaseAlbumPage::fromMusicTwoRowItemRenderer)
+            .orEmpty()
+    }
+
+    suspend fun moodAndGenres(): Result<List<MoodAndGenres>> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_moods_and_genres").body<BrowseResponse>()
+        response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents!!
+            .mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
+    }
+
+    suspend fun browse(browseId: String, params: String?): Result<BrowseResult> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, browseId = browseId, params = params).body<BrowseResponse>()
+        BrowseResult(
+            title = response.header?.musicHeaderRenderer?.title?.runs?.firstOrNull()?.text,
+            items = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.mapNotNull { content ->
+                when {
+                    content.gridRenderer != null -> {
+                        BrowseResult.Item(
+                            title = content.gridRenderer.header?.gridHeaderRenderer?.title?.runs?.firstOrNull()?.text,
+                            items = content.gridRenderer.items
+                                .mapNotNull(GridRenderer.Item::musicTwoRowItemRenderer)
+                                .mapNotNull(RelatedPage.Companion::fromMusicTwoRowItemRenderer)
+                        )
+                    }
+
+                    content.musicCarouselShelfRenderer != null -> {
+                        BrowseResult.Item(
+                            title = content.musicCarouselShelfRenderer.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs?.firstOrNull()?.text,
+                            items = content.musicCarouselShelfRenderer.contents
+                                .mapNotNull(MusicCarouselShelfRenderer.Content::musicTwoRowItemRenderer)
+                                .mapNotNull(RelatedPage.Companion::fromMusicTwoRowItemRenderer)
+                        )
+                    }
+
+                    else -> null
+                }
+            }.orEmpty()
+        )
+    }
+
+    suspend fun library(browseId: String, tabIndex: Int = 0) = runCatching {
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            browseId = browseId,
+            setLogin = true
+        ).body<BrowseResponse>()
+
+        val tabs = response.contents?.singleColumnBrowseResultsRenderer?.tabs
+
+        val contents = if (tabs != null && tabs.size > tabIndex) {
+            tabs[tabIndex].tabRenderer.content?.sectionListRenderer?.contents?.firstOrNull()
+        }
+        else {
+            null
+        }
+
+        when {
+            contents?.gridRenderer != null -> {
+                LibraryPage(
+                    items = contents.gridRenderer.items
+                        .mapNotNull (GridRenderer.Item::musicTwoRowItemRenderer)
+                        .mapNotNull { LibraryPage.fromMusicTwoRowItemRenderer(it) },
+                    continuation = contents.gridRenderer.continuations?.getContinuation()
+                )
+            }
+
+            else -> { // contents?.musicShelfRenderer != null
+                LibraryPage(
+                    items = contents?.musicShelfRenderer?.contents
+                        ?.mapNotNull (MusicShelfRenderer.Content::musicResponsiveListItemRenderer)
+                        ?.mapNotNull { LibraryPage.fromMusicResponsiveListItemRenderer(it) }
+                        .orEmpty(),
+                    continuation = contents?.musicShelfRenderer?.continuations?.getContinuation()
+                )
+            }
+        }
+    }
+
+    suspend fun libraryContinuation(continuation: String) = runCatching {
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            continuation = continuation,
+            setLogin = true
+        ).body<BrowseResponse>()
+
+        val contents = response.continuationContents
+
+        when {
+            contents?.gridContinuation != null -> {
+                LibraryContinuationPage(
+                    items = contents.gridContinuation.items
+                        .mapNotNull (GridRenderer.Item::musicTwoRowItemRenderer)
+                        .mapNotNull { LibraryPage.fromMusicTwoRowItemRenderer(it) },
+                    continuation = contents.gridContinuation.continuations?.getContinuation()
+                )
+            }
+
+            else -> { // contents?.musicShelfContinuation != null
+                LibraryContinuationPage(
+                    items = contents?.musicShelfContinuation?.contents
+                        ?.mapNotNull (MusicShelfRenderer.Content::musicResponsiveListItemRenderer)
+                        ?.mapNotNull { LibraryPage.fromMusicResponsiveListItemRenderer(it) }
+                        .orEmpty(),
+                    continuation = contents?.musicShelfContinuation?.continuations?.getContinuation()
+                )
+            }
+        }
+    }
+
+    suspend fun libraryRecentActivity(): Result<LibraryPage> = runCatching {
+        val continuation = LibraryFilter.FILTER_RECENT_ACTIVITY.value
+
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            continuation = continuation,
+            setLogin = true
+        ).body<BrowseResponse>()
+
+        val items = response.continuationContents?.sectionListContinuation?.contents?.firstOrNull()
+            ?.gridRenderer?.items!!.mapNotNull {
+                it.musicTwoRowItemRenderer?.let { renderer ->
+                    LibraryPage.fromMusicTwoRowItemRenderer(renderer)
+                }
+            }.toMutableList()
+
+        /*
+         * We need to fetch the artist page when accessing the library because it allows to have
+         * a proper playEndpoint, which is needed to correctly report the playing indicator in
+         * the home page.
+         *
+         * Despite this, we need to use the old thumbnail because it's the proper format for a
+         * square picture, which is what we need.
+         */
+        items.forEachIndexed { index, item ->
+            if (item is ArtistItem)
+                items[index] = artist(item.id).getOrNull()?.artist!!.copy(thumbnail = item.thumbnail)
+        }
+
+        LibraryPage(
+            items = items,
+            continuation = null
+        )
+    }
+
+    /**
+     * The account's history, newest first, in sections titled by date. [hl] asks for the titles in
+     * that language instead of the content language: Stats passes "en", because it dates sections
+     * by their titles and reads only English ones (see HistoryTally.maxAgeDays). A phone in any
+     * other language got titles it could not date, and its history counted only towards "All".
+     */
+    suspend fun musicHistory(hl: String? = null) = runCatching {
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            browseId = "FEmusic_history",
+            setLogin = true,
+            hl = hl,
+        ).body<BrowseResponse>()
+
+        val shelves = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
+            ?.tabRenderer?.content?.sectionListRenderer?.contents
+
+        HistoryPage(
+            sections = shelves?.mapNotNull {
+                it.musicShelfRenderer?.let { musicShelfRenderer ->
+                    HistoryPage.fromMusicShelfRenderer(musicShelfRenderer)
+                }
+            },
+            // YTM continues the whole history list from whichever shelf was rendered last.
+            continuation = shelves?.lastOrNull()?.musicShelfRenderer?.continuations?.getContinuation()
+        )
+    }
+
+    /**
+     * Fetches the next page of remote watch history after [HistoryPage.continuation].
+     *
+     * The continuation response is a flat item list, not shelves grouped by date - callers
+     * append [HistoryPage.sections] songs onto whichever section they're extending.
+     */
+    suspend fun musicHistoryContinuation(continuation: String, hl: String? = null) = runCatching {
+        val response = innerTube.browse(
+            client = WEB_REMIX,
+            continuation = continuation,
+            setLogin = true,
+            hl = hl,
+        ).body<BrowseResponse>()
+
+        val shelfContinuation = response.continuationContents?.musicShelfContinuation
+
+        HistoryPage(
+            sections = listOf(
+                HistoryPage.HistorySection(
+                    title = "",
+                    songs = shelfContinuation?.contents
+                        ?.mapNotNull(MusicShelfRenderer.Content::musicResponsiveListItemRenderer)
+                        ?.mapNotNull { HistoryPage.fromMusicResponsiveListItemRenderer(it) }
+                        .orEmpty()
+                )
+            ),
+            continuation = shelfContinuation?.continuations?.getContinuation()
+        )
+    }
+
+    suspend fun likeVideo(videoId: String, like: Boolean) = runCatching {
+        if (like)
+            innerTube.likeVideo(WEB_REMIX, videoId)
+        else
+            innerTube.unlikeVideo(WEB_REMIX, videoId)
+    }
+
+    suspend fun likePlaylist(playlistId: String, like: Boolean) = runCatching {
+        if (like)
+            innerTube.likePlaylist(WEB_REMIX, playlistId)
+        else
+            innerTube.unlikePlaylist(WEB_REMIX, playlistId)
+    }
+
+    suspend fun subscribeChannel(channelId: String, subscribe: Boolean) = runCatching {
+        if (subscribe)
+            innerTube.subscribeChannel(WEB_REMIX, channelId)
+        else
+            innerTube.unsubscribeChannel(WEB_REMIX, channelId)
+    }
+
+    suspend fun getChannelId(browseId: String): String {
+        artist(browseId).onSuccess {
+            return it.artist.channelId ?: ""
+        }
+        return ""
+    }
+
+    suspend fun addToPlaylist(playlistId: String, videoId: String) = runCatching {
+        innerTube.addToPlaylist(WEB_REMIX, playlistId, videoId)
+    }
+
+    suspend fun addPlaylistToPlaylist(playlistId: String, addPlaylistId: String) = runCatching {
+        innerTube.addPlaylistToPlaylist(WEB_REMIX, playlistId, addPlaylistId)
+    }
+
+    suspend fun removeFromPlaylist(playlistId: String, videoId: String, setVideoId: String) = runCatching {
+        innerTube.removeFromPlaylist(WEB_REMIX, playlistId, videoId, setVideoId)
+    }
+
+    suspend fun moveSongPlaylist(playlistId: String, setVideoId: String, successorSetVideoId: String) = runCatching {
+        innerTube.moveSongPlaylist(WEB_REMIX, playlistId, setVideoId, successorSetVideoId)
+    }
+
+    fun createPlaylist(title: String) = runBlocking {
+        innerTube.createPlaylist(WEB_REMIX, title).body<CreatePlaylistResponse>().playlistId
+    }
+
+    suspend fun renamePlaylist(playlistId: String, name: String) = runCatching {
+        innerTube.renamePlaylist(WEB_REMIX, playlistId, name)
+    }
+
+    suspend fun deletePlaylist(playlistId: String) = runCatching {
+        innerTube.deletePlaylist(WEB_REMIX, playlistId)
+    }
+
+    /**
+     * @param authenticated whether to send the signed-in session with the request.
+     *
+     * Defaults to true, which is what every existing caller wants and what the app has always done.
+     * Pass false to fetch a stream anonymously.
+     *
+     * That is not a privacy nicety, it is a workaround for a real refusal. A client YouTube considers
+     * a "device" client - IOS, the VR ones - is expected to carry a proof-of-origin token once it
+     * authenticates. Without one, an authenticated player request comes back as "Sign in to confirm
+     * you're not a bot", so signing in makes playback *stop working* on a build that has no way to
+     * produce that token. Streaming needs no session at all, so the honest fix is not to send one.
+     */
+    suspend fun player(
+        videoId: String,
+        playlistId: String? = null,
+        client: YouTubeClient,
+        signatureTimestamp: Int? = null,
+        webPlayerPot: String? = null,
+        authenticated: Boolean = true,
+    ): Result<PlayerResponse> = runCatching {
+        innerTube.player(
+            client, videoId, playlistId, signatureTimestamp, webPlayerPot,
+            cookie = if (authenticated) innerTube.cookie else null,
+        ).body<PlayerResponse>()
+    }
+
+    fun getNewPipeStreamUrls(videoId: String): List<Pair<Int, String>> =
+        NewPipeUtils.newPipePlayer(videoId)
+
+    /**
+     * [tempRes] with every format's url replaced by NewPipe's own for the same itag.
+     *
+     * Ported from Metrolist v13.6.3. The point is that a player response can be perfectly playable
+     * as metadata while its urls are unusable - a signature this app cannot descramble, most often
+     * right after YouTube rotates its player. Rather than discard the whole response, NewPipe
+     * resolves the same video by itself and its urls are grafted on by itag, keeping the response's
+     * formats, loudness and tracking intact.
+     *
+     * Null when there is nothing to be gained: an unplayable response, no NewPipe streams, or a
+     * graft that produced no urls at all. The caller reads null as "try the next client".
+     */
+    suspend fun newPipePlayer(videoId: String, tempRes: PlayerResponse): PlayerResponse? {
+        if (tempRes.playabilityStatus.status != "OK") return null
+
+        val streamsList = getNewPipeStreamUrls(videoId)
+        if (streamsList.isEmpty()) return null
+
+        val decodedSigResponse = tempRes.copy(
+            streamingData = tempRes.streamingData?.copy(
+                formats = tempRes.streamingData.formats?.map { format ->
+                    format.copy(url = streamsList.find { it.first == format.itag }?.second ?: format.url)
+                },
+                adaptiveFormats = tempRes.streamingData.adaptiveFormats.map { adaptiveFormat ->
+                    adaptiveFormat.copy(
+                        url = streamsList.find { it.first == adaptiveFormat.itag }?.second ?: adaptiveFormat.url
+                    )
+                },
+            ),
+        )
+
+        val hasAnyUrl = decodedSigResponse.streamingData?.adaptiveFormats?.any { it.url != null } == true ||
+            decodedSigResponse.streamingData?.formats?.any { it.url != null } == true
+        return decodedSigResponse.takeIf { hasAnyUrl }
+    }
+
+    /**
+     * The "cpn" (client playback nonce) a real client generates once per playback and reuses on
+     * every tracking ping for that playback, plus (see [YTPlayerUtils] in the app module) as a
+     * query param on the stream URL itself - the same value tying the audio fetch to its own
+     * telemetry is part of what a real client's traffic looks like.
+     */
+    fun generateCpn(): String = (1..16).map {
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"[Random.nextInt(0, 64)]
+    }.joinToString("")
+
+    private fun String.toMusicHost() = replace("https://s.youtube.com", "https://music.youtube.com")
+
+    suspend fun registerPlayback(playlistId: String? = null, playbackTracking: String) = runCatching {
+        innerTube.registerPlayback(
+            url = playbackTracking.toMusicHost(),
+            playlistId = playlistId,
+            cpn = generateCpn()
+        )
+    }
+
+    /**
+     * Replays the short burst of playback-start telemetry a real YouTube Music client sends,
+     * timed the way it's been observed in sibling YTM clients: an initial "playback" hit, a first
+     * watch-time checkpoint at ~5.54s, an "atr" ping 5s after that, then a second checkpoint
+     * covering both intervals. [cpn] must be the same nonce already embedded in the stream URL
+     * this playback is using, so the ping traffic and the audio fetch correlate the way a real
+     * client's do. Best-effort and fire-and-forget: a failure here doesn't affect playback itself,
+     * only how much this playback resembles a real client's traffic.
+     *
+     * Sent without the account's cookie. With it, the "playback" hit is the very request that
+     * writes a song into the account's history, so every streamed song went in the moment it
+     * started: songs skipped after two seconds, station picks, live streams, and with history
+     * paused too. Stats then read those back from the history as plays made elsewhere. A play
+     * reaches the account only through [registerPlayback], once the app has decided it counts.
+     */
+    suspend fun initPlayback(
+        playlistId: String?,
+        playbackTracking: PlayerResponse.PlaybackTracking?,
+        cpn: String,
+    ) = runCatching {
+        val playbackUrl = playbackTracking?.videostatsPlaybackUrl?.baseUrl?.toMusicHost() ?: return@runCatching
+        val watchtimeUrl = playbackTracking.videostatsWatchtimeUrl?.baseUrl?.toMusicHost()
+        val atrUrl = playbackTracking.atrUrl?.baseUrl?.toMusicHost()
+
+        innerTube.registerPlayback(url = playbackUrl, playlistId = playlistId, cpn = cpn, setLogin = false)
+        if (watchtimeUrl == null) return@runCatching
+
+        innerTube.registerWatchtime(
+            watchtimeUrl, cpn, startSeconds = "0", endSeconds = "5.54", playlistId = playlistId, setLogin = false
+        )
+        if (atrUrl == null) return@runCatching
+
+        delay(5000)
+        innerTube.registerAtr(atrUrl, cpn, playlistId, setLogin = false)
+        delay(500)
+        val secondCheckpoint = 5.54f + Random.nextInt(0, 100) / 100f
+        innerTube.registerWatchtime(
+            watchtimeUrl, cpn,
+            startSeconds = "0,5.54", endSeconds = "5.54,$secondCheckpoint",
+            playlistId = playlistId, setLogin = false
+        )
+    }
+
+    suspend fun next(endpoint: WatchEndpoint, continuation: String? = null): Result<NextResult> = runCatching {
+        val response = innerTube.next(
+            WEB_REMIX,
+            endpoint.videoId,
+            endpoint.playlistId,
+            endpoint.playlistSetVideoId,
+            endpoint.index,
+            endpoint.params,
+            continuation).body<NextResponse>()
+        val playlistPanelRenderer = response.continuationContents?.playlistPanelContinuation
+            ?: response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer
+                .watchNextTabbedResultsRenderer.tabs[0].tabRenderer.content?.musicQueueRenderer
+                ?.content?.playlistPanelRenderer!!
+        val title = response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer
+            .watchNextTabbedResultsRenderer.tabs[0].tabRenderer.content?.musicQueueRenderer
+            ?.header?.musicQueueHeaderRenderer?.subtitle?.runs?.firstOrNull()?.text
+        val items = playlistPanelRenderer.contents.mapNotNull { content ->
+            content.playlistPanelVideoRenderer
+                ?.let(NextPage::fromPlaylistPanelVideoRenderer)
+                ?.let { it to content.playlistPanelVideoRenderer.selected }
+        }
+        val songs = items.map { it.first }
+        val currentIndex = items.indexOfFirst { it.second }.takeIf { it != -1 }
+
+        // load automix items
+        playlistPanelRenderer.contents.lastOrNull()?.automixPreviewVideoRenderer?.content?.automixPlaylistVideoRenderer?.navigationEndpoint?.watchPlaylistEndpoint?.let { watchPlaylistEndpoint ->
+            return@runCatching next(watchPlaylistEndpoint).getOrThrow().let { result ->
+                result.copy(
+                    title = title,
+                    items = songs + result.items,
+                    lyricsEndpoint = response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs.getOrNull(1)?.tabRenderer?.endpoint?.browseEndpoint,
+                    relatedEndpoint = response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs.getOrNull(2)?.tabRenderer?.endpoint?.browseEndpoint,
+                    currentIndex = currentIndex,
+                    endpoint = watchPlaylistEndpoint
+                )
+            }
+        }
+        NextResult(
+            title = title,
+            items = songs,
+            currentIndex = currentIndex,
+            lyricsEndpoint = response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs.getOrNull(1)?.tabRenderer?.endpoint?.browseEndpoint,
+            relatedEndpoint = response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs.getOrNull(2)?.tabRenderer?.endpoint?.browseEndpoint,
+            continuation = playlistPanelRenderer.continuations?.getContinuation(),
+            endpoint = endpoint
+        )
+    }
+
+    suspend fun lyrics(endpoint: BrowseEndpoint): Result<String?> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, endpoint.browseId, endpoint.params).body<BrowseResponse>()
+        response.contents?.sectionListRenderer?.contents?.firstOrNull()?.musicDescriptionShelfRenderer?.description?.runs?.firstOrNull()?.text
+    }
+
+    suspend fun related(endpoint: BrowseEndpoint): Result<RelatedPage> = runCatching {
+        val response = innerTube.browse(WEB_REMIX, endpoint.browseId).body<BrowseResponse>()
+        val songs = mutableListOf<SongItem>()
+        val albums = mutableListOf<AlbumItem>()
+        val artists = mutableListOf<ArtistItem>()
+        val playlists = mutableListOf<PlaylistItem>()
+        response.contents?.sectionListRenderer?.contents?.forEach { sectionContent ->
+            sectionContent.musicCarouselShelfRenderer?.contents?.forEach { content ->
+                when (val item = content.musicResponsiveListItemRenderer?.let(RelatedPage.Companion::fromMusicResponsiveListItemRenderer)
+                    ?: content.musicTwoRowItemRenderer?.let(RelatedPage.Companion::fromMusicTwoRowItemRenderer)) {
+                    is SongItem -> if (content.musicResponsiveListItemRenderer?.overlay
+                            ?.musicItemThumbnailOverlayRenderer?.content
+                            ?.musicPlayButtonRenderer?.playNavigationEndpoint
+                            ?.watchEndpoint?.watchEndpointMusicSupportedConfigs
+                            ?.watchEndpointMusicConfig?.musicVideoType == MUSIC_VIDEO_TYPE_ATV
+                    ) songs.add(item)
+
+                    is AlbumItem -> albums.add(item)
+                    is ArtistItem -> artists.add(item)
+                    is PlaylistItem -> playlists.add(item)
+                    null -> {}
+                }
+            }
+        }
+        RelatedPage(songs, albums, artists, playlists)
+    }
+
+    suspend fun queue(videoIds: List<String>? = null, playlistId: String? = null): Result<List<SongItem>> = runCatching {
+        if (videoIds != null) {
+            assert(videoIds.size <= MAX_GET_QUEUE_SIZE) // Max video limit
+        }
+        innerTube.getQueue(WEB_REMIX, videoIds, playlistId).body<GetQueueResponse>().queueDatas
+            .mapNotNull {
+                it.content.playlistPanelVideoRenderer?.let { renderer ->
+                    NextPage.fromPlaylistPanelVideoRenderer(renderer)
+                }
+            }
+    }
+
+    suspend fun transcript(videoId: String): Result<String> = runCatching {
+        // The get_transcript endpoint now rejects unauthenticated requests with HTTP 400, so the
+        // timed text (caption) track from the player response is used instead. The IOS client is
+        // required here because the WEB client does not return caption tracks.
+        val captionTracks = innerTube.player(IOS, videoId, null, null, null)
+            .body<PlayerResponse>()
+            .captions
+            ?.playerCaptionsTracklistRenderer
+            ?.captionTracks
+            .orEmpty()
+        check(captionTracks.isNotEmpty()) { "No caption tracks available for videoId=$videoId" }
+
+        // Prefer auto-generated captions (kind=asr), then English, then the first available track.
+        val track = captionTracks.firstOrNull { it.kind == "asr" }
+            ?: captionTracks.firstOrNull { it.languageCode.startsWith("en") }
+            ?: captionTracks.first()
+
+        val timedText = innerTube.httpGet(track.baseUrl) { parameter("fmt", "json3") }.body<TimedText3Response>()
+
+        // Convert the timed text events into LRC formatted lines.
+        val lines = mutableListOf<String>()
+        var currentTime: Long = -1L
+        val currentText = StringBuilder()
+
+        fun flushLine() {
+            if (currentTime < 0) return
+            val text = currentText.toString().replace("\n", " ").trim('♪').trim()
+            if (text.isNotBlank()) {
+                lines += "[%02d:%02d.%03d]$text".format(currentTime / 60000, (currentTime / 1000) % 60, currentTime % 1000)
+            }
+        }
+
+        timedText.events?.forEach { event ->
+            val segs = event.segs ?: return@forEach
+            val text = segs.mapNotNull { it.utf8 }.joinToString("")
+            if (text.replace("\n", "").isBlank()) return@forEach
+            if (!event.isAppend) {
+                flushLine()
+                currentTime = event.tStartMs
+                currentText.clear()
+            }
+            currentText.append(text)
+        }
+        flushLine()
+
+        check(lines.isNotEmpty()) { "Empty transcript for videoId=$videoId" }
+        lines.joinToString("\n")
+    }
+
+    suspend fun visitorData(): Result<String> = runCatching {
+        Json.parseToJsonElement(innerTube.getSwJsData().bodyAsText().substring(5))
+            .jsonArray[0]
+            .jsonArray[2]
+            .jsonArray.first {
+                (it as? JsonPrimitive)?.contentOrNull?.let { candidate ->
+                    VISITOR_DATA_REGEX.containsMatchIn(candidate)
+                } ?: false
+            }
+            .jsonPrimitive.content
+    }
+
+    /**
+     * Fetches account information with an explicit cookie, visitor data and dataSyncId snapshot, so
+     * that the request is not affected by asynchronous updates to the shared credentials.
+     */
+    suspend fun accountInfo(
+        cookie: String?,
+        visitorData: String?,
+        dataSyncId: String?,
+    ): Result<AccountInfo> = runCatching {
+        innerTube.accountMenu(WEB_REMIX, cookie, visitorData, dataSyncId).body<AccountMenuResponse>()
+            .actions[0].openPopupAction.popup.multiPageMenuRenderer
+            .header?.activeAccountHeaderRenderer
+            ?.toAccountInfo()
+            ?: throw IllegalStateException("Account info is not available (not signed in or account header missing)")
+    }
+
+    @JvmInline
+    value class SearchFilter(val value: String) {
+        companion object {
+            val FILTER_SONG = SearchFilter("EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D")
+            val FILTER_VIDEO = SearchFilter("EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D")
+            val FILTER_ALBUM = SearchFilter("EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D")
+            val FILTER_ARTIST = SearchFilter("EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D")
+            val FILTER_FEATURED_PLAYLIST = SearchFilter("EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ%3D")
+            val FILTER_COMMUNITY_PLAYLIST = SearchFilter("EgeKAQQoAEABagoQAxAEEAoQCRAF")
+        }
+    }
+
+    @JvmInline
+    value class LibraryFilter(val value: String) {
+        companion object {
+            val FILTER_RECENT_ACTIVITY = LibraryFilter("4qmFsgIrEhdGRW11c2ljX2xpYnJhcnlfbGFuZGluZxoQZ2dNR0tnUUlCaEFCb0FZQg%3D%3D")
+            val FILTER_RECENTLY_PLAYED = LibraryFilter("4qmFsgIrEhdGRW11c2ljX2xpYnJhcnlfbGFuZGluZxoQZ2dNR0tnUUlCUkFCb0FZQg%3D%3D")
+            val FILTER_PLAYLISTS_ALPHABETICAL = LibraryFilter("4qmFsgIrEhdGRW11c2ljX2xpa2VkX3BsYXlsaXN0cxoQZ2dNR0tnUUlBUkFBb0FZQg%3D%3D")
+            val FILTER_PLAYLISTS_RECENTLY_SAVED = LibraryFilter("4qmFsgIrEhdGRW11c2ljX2xpa2VkX3BsYXlsaXN0cxoQZ2dNR0tnUUlBQkFCb0FZQg%3D%3D")
+        }
+    }
+
+    const val MAX_GET_QUEUE_SIZE = 1000
+
+    private val VISITOR_DATA_REGEX = Regex("^Cg[t|s]")
+}

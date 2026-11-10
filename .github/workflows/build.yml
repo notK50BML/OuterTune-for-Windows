@@ -1,0 +1,55 @@
+name: Build
+
+# Run by hand from the Actions tab, or by pushing a tag such as v0.3.0.
+# A tag also makes a draft release with the installer and the portable zip; publish it from the
+# Releases page when it's ready. The app's updater ignores drafts, so nobody is offered a release
+# until it's published.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    # Pinned rather than windows-latest: this image ships Inno Setup 6, which the installer needs.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Make sure Inno Setup is installed
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build the installer and the portable zip
+        shell: pwsh
+        run: ./gradlew.bat :desktop:installer :desktop:packageApp --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OuterTune-for-Windows
+          path: |
+            desktop/build/dist/OuterTune-setup-*.exe
+            desktop/build/dist/OuterTune-windows.zip
+          if-no-files-found: error
+
+      - name: Draft a release for the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem desktop/build/dist -File | Where-Object { $_.Name -like 'OuterTune-setup-*.exe' -or $_.Name -eq 'OuterTune-windows.zip' }
+          gh release create $env:GITHUB_REF_NAME $files.FullName --draft --title "OuterTune for Windows $env:GITHUB_REF_NAME" --generate-notes

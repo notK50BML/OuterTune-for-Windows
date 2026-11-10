@@ -1,0 +1,389 @@
+/*
+ * Copyright (C) 2026 OuterTune Project
+ *
+ * SPDX-License-Identifier: GPL-3.0
+ */
+
+package com.dd3boh.outertune.desktop
+
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import com.dd3boh.betterlyrics.Singer
+import com.dd3boh.betterlyrics.SingerColours
+import com.dd3boh.betterlyrics.Singers
+import com.dd3boh.betterlyrics.Voice
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+/**
+ * A song's words, following along where the file has timings.
+ *
+ * The current line is bright and the rest are dimmed rather than the current line being tinted some
+ * accent colour. Lyrics are read as a block with one's place kept in it, so what matters is which
+ * line the eye lands on, and brightness carries that far better than hue - particularly over a
+ * background taken from album art, which is already some arbitrary colour.
+ *
+ * Any line can be clicked to seek to it. That is the one thing lyrics can do that a seek bar cannot:
+ * jumping to a remembered line is how people navigate a song they know, and it is far more precise
+ * than dragging to a position.
+ *
+ * Unsynced lyrics are shown as plain scrollable text with nothing highlighted. Inventing a highlight
+ * for a file with no timings would be making up the one piece of information it does not have.
+ *
+ * A duet whose lines say who sings them is drawn a colour per singer - Settings > Lyrics > Singer
+ * names in lyrics, which [withSingerNames] has already applied by the time the lyrics get here: a
+ * line with a [LyricLine.voice] is coloured, one without is not. Brightness still marks the line
+ * being sung, in the singer's own colour, so the two never compete. The singers' names, when the
+ * lyrics give them, are a small key above the lines.
+ */
+@Composable
+fun LyricsPane(
+    lyrics: Lyrics?,
+    loading: Boolean,
+    positionMs: () -> Long,
+    onSeek: (Long) -> Unit,
+    onColour: Color,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 22.sp,
+    alignment: LyricsAlignment = LyricsAlignment.Centre,
+    highlight: LyricsHighlight = LyricsHighlight.Fade,
+) {
+    val textAlign = if (alignment == LyricsAlignment.Left) TextAlign.Start else TextAlign.Center
+    val colourOf = rememberVoiceColours(onColour)
+    Column(modifier = modifier.fillMaxSize()) {
+        // Above the lines rather than over them, so it is never drawn across a lyric.
+        if (!loading && lyrics != null) {
+            SingerLegend(
+                singers = lyrics.singers,
+                colourOf = colourOf,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 24.dp, end = 24.dp),
+            )
+        }
+        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            when {
+                loading -> CircularProgressIndicator(color = onColour.copy(alpha = 0.6f))
+
+                lyrics == null || lyrics.isEmpty -> Text(
+                    text = "No lyrics found",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = onColour.copy(alpha = 0.5f),
+                )
+
+                !lyrics.synced -> Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                ) {
+                    lyrics.lines.forEach { line ->
+                        Text(
+                            text = line.text,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSize, lineHeight = fontSize * 1.3f),
+                            color = colourOf(line.voice).copy(alpha = 0.8f),
+                            textAlign = textAlign,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                        )
+                    }
+                }
+
+                else -> SyncedLyrics(
+                    lyrics = lyrics,
+                    // A read, not a value: passed as a number it recomposed every visible line every
+                    // frame. Only what reads it now updates - the current-line lookup, and the one line
+                    // being sung.
+                    positionMs = rememberSmoothedPosition(positionMs).let { state -> { state.value } },
+                    onSeek = onSeek,
+                    onColour = onColour,
+                    fontSize = fontSize,
+                    textAlign = textAlign,
+                    highlight = highlight,
+                    colourOf = colourOf,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The colour each voice's lines are drawn in over [onColour], the colour ordinary lyrics use there -
+ * worked out by `:betterlyrics`' [SingerColours] from the theme's primary and tertiary, the same way
+ * the phone does. No voice is [onColour] itself.
+ */
+@Composable
+internal fun rememberVoiceColours(onColour: Color): (Voice?) -> Color {
+    val scheme = MaterialTheme.colorScheme
+    return remember(onColour, scheme.primary, scheme.tertiary) {
+        val colours = Voice.entries.associateWith { voice ->
+            Color(SingerColours.forVoice(voice, scheme.primary.toArgb(), scheme.tertiary.toArgb(), onColour.toArgb()))
+        }
+        val colourOf: (Voice?) -> Color = { voice -> voice?.let(colours::getValue) ?: onColour }
+        colourOf
+    }
+}
+
+/**
+ * Who is who in a coloured duet: a dot of each voice's colour and the name of whoever sings in it,
+ * "Jung Kook · Latto", once at the top. Nothing at all when the lyrics name nobody.
+ */
+@Composable
+private fun SingerLegend(singers: List<Singer>, colourOf: (Voice?) -> Color, modifier: Modifier = Modifier) {
+    val entries = remember(singers) { Singers.legend(singers) }
+    if (entries.isEmpty()) return
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        entries.forEachIndexed { index, (voice, name) ->
+            if (index > 0) {
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colourOf(null).copy(alpha = 0.5f),
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
+            Box(Modifier.size(8.dp).background(colourOf(voice), CircleShape))
+            Spacer(Modifier.width(6.dp))
+            Text(text = name, style = MaterialTheme.typography.labelMedium, color = colourOf(voice), maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SyncedLyrics(
+    lyrics: Lyrics,
+    positionMs: () -> Long,
+    onSeek: (Long) -> Unit,
+    onColour: Color,
+    fontSize: TextUnit,
+    textAlign: TextAlign,
+    highlight: LyricsHighlight,
+    colourOf: (Voice?) -> Color,
+) {
+    val listState = rememberLazyListState()
+    // Changes only when the line does, so the list recomposes once a line, not once a frame.
+    val current by remember(lyrics) { derivedStateOf { LrcParser.lineAt(lyrics.lines, positionMs()) } }
+    val lineStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSize, lineHeight = fontSize * 1.3f)
+    val translationStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = fontSize * 0.72f, lineHeight = fontSize * 0.95f)
+
+    // Scrolling stops following while the pointer is driving the list, and starts again a few
+    // seconds after it stops. Without that, looking ahead at the next verse is impossible: the list
+    // yanks itself back on every line change, which arrives every couple of seconds.
+    var browsingUntil by remember { mutableStateOf(0L) }
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) browsingUntil = System.currentTimeMillis() + BROWSE_GRACE_MS
+    }
+
+    suspend fun centreOnCurrent() {
+        if (current < 0) return
+        val visible = listState.layoutInfo.visibleItemsInfo
+        // Centred rather than scrolled to the top, so there is as much of what is coming as of what
+        // has just been sung. The offset is half the viewport, which is what "centre" means when
+        // every line is a different height.
+        val centreOffset = -(listState.layoutInfo.viewportSize.height / 2) +
+            (visible.firstOrNull { it.index == current }?.size ?: 0) / 2
+        listState.animateScrollToItem(current.coerceAtLeast(0), centreOffset)
+    }
+    LaunchedEffect(current) {
+        if (System.currentTimeMillis() < browsingUntil) return@LaunchedEffect
+        centreOnCurrent()
+    }
+    // And when browsing ends, back to the line being sung - it used to wait for the next line change,
+    // which in a slow song can be a while of looking at the wrong verse.
+    LaunchedEffect(browsingUntil) {
+        val wait = browsingUntil - System.currentTimeMillis()
+        if (wait <= 0) return@LaunchedEffect
+        kotlinx.coroutines.delay(wait)
+        if (!listState.isScrollInProgress) centreOnCurrent()
+    }
+
+    LazyColumn(
+        state = listState,
+        horizontalAlignment = if (textAlign == TextAlign.Start) Alignment.Start else Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        // Half a screen of padding at each end so the first and last lines can still reach the
+        // middle. Without it the song opens with its first line pinned to the top and ends with the
+        // last one pinned to the bottom, and the highlight stops tracking at both ends.
+        contentPadding = PaddingValues(vertical = 180.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        itemsIndexed(lyrics.lines) { index, line ->
+            val active = index == current
+            val alpha by animateFloatAsState(if (active) 1f else 0.42f)
+            if (line.text.isBlank()) {
+                // An empty timed line is an instrumental break. Shown as space rather than as
+                // nothing, so a long gap reads as part of the song instead of as lyrics stopping.
+                Spacer(modifier = Modifier.height(fontSize.value.dp))
+            } else {
+                val modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { line.timeMs?.let(onSeek) }
+                    .padding(horizontal = 24.dp, vertical = 6.dp)
+
+                // The singer's colour when the lines are coloured by singer; the usual one otherwise.
+                // Everything below dims and lights this the same way it did the usual colour.
+                val lineColour = colourOf(line.voice)
+                androidx.compose.foundation.layout.Column(modifier = modifier) {
+                    if (active && line.words.isNotEmpty() && highlight == LyricsHighlight.Sweep) {
+                        SweepLyricLine(
+                            line = line,
+                            style = lineStyle.copy(fontWeight = FontWeight.Bold, textAlign = textAlign),
+                            sungColor = lineColour,
+                            unsungColor = lineColour.copy(alpha = UNSUNG_ALPHA),
+                            positionMs = positionMs,
+                        )
+                    } else if (active && line.words.isNotEmpty()) {
+                        Text(
+                            text = sungText(line, positionMs(), lineColour),
+                            style = lineStyle,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = textAlign,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        Text(
+                            text = line.text,
+                            style = lineStyle,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                            color = lineColour.copy(alpha = alpha),
+                            textAlign = textAlign,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    // The same moment's translation, smaller and quieter, lit with its line - and its
+                    // background vocals, in the colour of the singer they belong to.
+                    line.translation?.let {
+                        Text(
+                            text = it,
+                            style = translationStyle,
+                            color = lineColour.copy(alpha = alpha * 0.8f),
+                            textAlign = textAlign,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The active line with its words lit as they are sung.
+ *
+ * The word being sung fades in across its own duration rather than switching on at its start. A hard
+ * switch reads as a cursor stepping along the line - mechanical, and unforgiving of timings that are
+ * a few tens of milliseconds out, which most are. A fade lands as the voice arriving, and a small
+ * timing error becomes a slightly early glow instead of a visibly wrong jump.
+ *
+ * Words not yet sung stay clearly readable rather than nearly invisible. This is a line someone is
+ * reading ahead on; dimming the rest of it to a whisper would defeat the point of showing the whole
+ * line at all.
+ *
+ * Built as one string with per-word spans rather than a row of separate texts, so the line wraps and
+ * centres as a single paragraph - a Row of words would break at the wrong places and centre each
+ * fragment on its own.
+ */
+private fun sungText(line: LyricLine, positionMs: Long, onColour: Color): AnnotatedString =
+    buildAnnotatedString {
+        line.words.forEach { word ->
+            val alpha = when {
+                positionMs >= word.endMs -> 1f
+                positionMs < word.startMs -> UNSUNG_ALPHA
+                else -> {
+                    val span = (word.endMs - word.startMs).coerceAtLeast(1)
+                    val through = (positionMs - word.startMs).toFloat() / span
+                    UNSUNG_ALPHA + (1f - UNSUNG_ALPHA) * through.coerceIn(0f, 1f)
+                }
+            }
+            withStyle(SpanStyle(color = onColour.copy(alpha = alpha))) { append(word.text) }
+            if (word.trailingSpace) append(" ")
+        }
+    }
+
+/**
+ * The playback position, advanced every frame between the player's own updates.
+ *
+ * The player reports its position whenever it hands audio to the sound card, which is every few
+ * tens of milliseconds and unevenly - fine for a seek bar, visibly steppy for a word fading in.
+ * Between reports this runs the clock forward by real time, a little way only: capped so that when
+ * playback pauses the highlight stops within a frame or two rather than running on, and never moved
+ * backwards except by a real jump (a seek), so a late report cannot make a word flicker.
+ */
+@Composable
+private fun rememberSmoothedPosition(positionMs: () -> Long): androidx.compose.runtime.State<Long> {
+    var anchorMs by remember { mutableStateOf(positionMs()) }
+    var anchorNanos by remember { mutableStateOf(System.nanoTime()) }
+    val shownState = remember { mutableStateOf(positionMs()) }
+    var shown by shownState
+    LaunchedEffect(Unit) {
+        // Followed as a flow rather than read in composition, so a report does not recompose the
+        // pane by itself - only the per-frame clock below does, and only while lyrics are open.
+        snapshotFlow { positionMs() }.collect { reported ->
+            anchorMs = reported
+            anchorNanos = System.nanoTime()
+            if (reported < shown - SEEK_JUMP_MS || reported > shown + SEEK_JUMP_MS) shown = reported
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            withFrameNanos {
+                val ahead = ((System.nanoTime() - anchorNanos) / 1_000_000L).coerceIn(0L, MAX_EXTRAPOLATION_MS)
+                shown = maxOf(shown, anchorMs + ahead)
+            }
+        }
+    }
+    return shownState
+}
+
+/** How far past the last reported position the clock may run on its own. */
+private const val MAX_EXTRAPOLATION_MS = 120L
+
+/** A position change bigger than this is a seek, and is followed at once in either direction. */
+private const val SEEK_JUMP_MS = 600L
+
+/** How visible a word is before it has been sung. */
+private const val UNSUNG_ALPHA = 0.45f
+
+/** How long after a manual scroll before the lyrics start following the song again. */
+private const val BROWSE_GRACE_MS = 4_000L
