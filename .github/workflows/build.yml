@@ -37,6 +37,24 @@ jobs:
         shell: pwsh
         run: ./gradlew.bat :desktop:installer :desktop:packageApp --stacktrace
 
+      - name: Report sizes
+        shell: pwsh
+        run: |
+          function Mb($b) { '{0:N1} MB' -f ($b / 1MB) }
+          $installer = Get-ChildItem desktop/build/dist -Filter 'OuterTune-setup-*.exe' | Select-Object -First 1
+          $zip = Get-Item desktop/build/dist/OuterTune-windows.zip
+          $installed = (Get-ChildItem desktop/build/jpackage/OuterTune -Recurse -File | Measure-Object Length -Sum).Sum
+          $runtime = (Get-ChildItem desktop/build/jpackage/OuterTune/runtime -Recurse -File | Measure-Object Length -Sum).Sum
+          $lines = @(
+            '| What | Size |', '|---|---|',
+            "| Installer download ($($installer.Name)) | $(Mb $installer.Length) |",
+            "| Portable zip | $(Mb $zip.Length) |",
+            "| Installed (unpacked app folder) | $(Mb $installed) |",
+            "| ... of which the bundled Java runtime | $(Mb $runtime) |"
+          )
+          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          $lines | ForEach-Object { Write-Host $_ }
+
       - uses: actions/upload-artifact@v4
         with:
           name: OuterTune-for-Windows
