@@ -48,6 +48,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -1755,7 +1757,7 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
         val code = settings.playSyncCode
         if (code.isBlank()) {
             var entering by remember { mutableStateOf(false) }
-            var typed by remember { mutableStateOf("") }
+            var typed by remember { mutableStateOf(TextFieldValue("")) }
             SettingRow(
                 title = "Set up sync on this computer",
                 subtitle = "Makes a sync code to enter on your other devices.",
@@ -1772,14 +1774,22 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                 onClick = { entering = !entering },
             )
             if (entering) {
-                val valid = SyncCode.normalize(typed)
+                val valid = SyncCode.normalize(typed.text)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 40.dp, bottom = 8.dp)) {
                     OutlinedTextField(
                         value = typed,
-                        onValueChange = { typed = it },
+                        // Capitals, and the dashes put in as it is typed. The cursor is kept at the
+                        // end: a dash inserted ahead of it would otherwise leave it one place back,
+                        // and the next character would land in the wrong spot.
+                        onValueChange = { v ->
+                            val text = SyncCode.asTyped(v.text)
+                            typed = TextFieldValue(text, TextRange(text.length))
+                        },
                         singleLine = true,
                         placeholder = { Text("e.g. K7QD-M2XP-9RFA") },
-                        isError = typed.length >= 12 && valid == null,
+                        isError = typed.text.length >= 14 && valid == null,
+                        // Typing here must not also reach the window's shortcuts - see KeyBindings.
+                        modifier = Modifier.typingField(),
                     )
                     TextButton(
                         enabled = valid != null,
@@ -1787,7 +1797,7 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                             settings.playSyncCode = valid.orEmpty()
                             settings.playSyncWifi = true
                             entering = false
-                            typed = ""
+                            typed = TextFieldValue("")
                         },
                     ) { Text("Link") }
                 }
