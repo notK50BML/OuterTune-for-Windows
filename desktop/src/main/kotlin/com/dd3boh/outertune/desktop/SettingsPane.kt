@@ -1836,6 +1836,58 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                     onClick = { PlaySync.manager?.syncNow() },
                 )
             }
+            SettingSwitch(
+                title = "Cloud sync",
+                subtitle = if (CloudSyncConfig.configured) {
+                    "Keeps your plays in an encrypted store online, so your devices sync from anywhere, not just on " +
+                        "the same WiFi. They're encrypted with your sync code before they leave this computer, so only " +
+                        "your devices can find or read them. No account needed."
+                } else {
+                    "Not available in this version yet."
+                },
+                checked = settings.playSyncCloud && CloudSyncConfig.configured,
+                onCheckedChange = { if (CloudSyncConfig.configured) settings.playSyncCloud = it },
+                icon = OuterTuneIcons.cloudDownload,
+            )
+            if (settings.playSyncCloud && CloudSyncConfig.configured) {
+                val cloudStatus by (CloudSync.runner?.status ?: CloudSync.idle).collectAsState()
+                val last = cloudStatus.last
+                val lastAt = cloudStatus.lastAt
+                SettingRow(
+                    title = if (cloudStatus.syncing) "Syncing…" else "Click to sync now",
+                    subtitle = when {
+                        cloudStatus.error != null -> "Last try failed (${cloudStatus.error})."
+                        last != null && lastAt != null -> "Synced ${java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                            .format(java.time.Instant.ofEpochMilli(lastAt).atZone(java.time.ZoneId.systemDefault()))}: " +
+                            "${last.received} new plays here, ${last.sent} sent."
+                        else -> "Not synced yet."
+                    },
+                    icon = OuterTuneIcons.refresh,
+                    onClick = { CloudSync.runner?.syncNow() },
+                )
+            }
+            if (CloudSyncConfig.configured) {
+                var deleting by remember { mutableStateOf(false) }
+                var deleteResult by remember { mutableStateOf<String?>(null) }
+                SettingRow(
+                    title = if (deleting) "Click again to delete your plays from the cloud" else "Delete my plays from the cloud",
+                    subtitle = deleteResult ?: ("Removes everything stored online for this sync code, for every linked device, " +
+                        "and turns cloud sync off here. Plays on your devices stay."),
+                    icon = OuterTuneIcons.delete,
+                    tint = MaterialTheme.colorScheme.error,
+                    onClick = {
+                        if (deleting) {
+                            deleting = false
+                            settings.playSyncCloud = false
+                            CloudSync.runner?.deleteCloudData(code) { ok ->
+                                deleteResult = if (ok) "Cloud data deleted." else "Couldn't delete the cloud data."
+                            }
+                        } else {
+                            deleting = true
+                        }
+                    },
+                )
+            }
             var unlinking by remember { mutableStateOf(false) }
             SettingRow(
                 title = if (unlinking) "Click again to unlink" else "Unlink this computer",

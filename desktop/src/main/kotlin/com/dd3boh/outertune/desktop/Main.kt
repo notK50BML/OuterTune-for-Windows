@@ -713,6 +713,25 @@ internal fun App(
     LaunchedEffect(settings.playSyncCode, settings.playSyncWifi) {
         if (settings.playSyncCode.isNotBlank() && settings.playSyncWifi) playSync.start(settings.playSyncCode) else playSync.stop()
     }
+    // And through the cloud, from anywhere - see CloudPlaySync. Only once the project's database is
+    // configured; until then the switch is not offered.
+    val cloudSync = remember {
+        CloudSyncRunner(
+            LibraryPlaySyncStore(library),
+            object : CloudSyncMemory {
+                override var lastRev: String?
+                    get() = settings.cloudSyncRev.ifEmpty { null }
+                    set(value) { settings.cloudSyncRev = value.orEmpty() }
+                override var lastFingerprint: String?
+                    get() = settings.cloudSyncFingerprint.ifEmpty { null }
+                    set(value) { settings.cloudSyncFingerprint = value.orEmpty() }
+            },
+        ).also { CloudSync.runner = it }
+    }
+    DisposableEffect(cloudSync) { onDispose { cloudSync.stop(); CloudSync.runner = null } }
+    LaunchedEffect(settings.playSyncCode, settings.playSyncCloud) {
+        if (settings.playSyncCode.isNotBlank() && settings.playSyncCloud) cloudSync.start(settings.playSyncCode) else cloudSync.stop()
+    }
     LaunchedEffect(settings.listenTogetherOffsetMs) {
         listenTogether.offsetMs = settings.listenTogetherOffsetMs.toLong()
     }
