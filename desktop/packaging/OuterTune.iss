@@ -40,11 +40,12 @@ DefaultDirName={autopf}\OuterTune
 DefaultGroupName=OuterTune
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-; "Install for me only" or "for all users" (admin) - asked every time it runs interactively, even over
-; an existing install, rather than silently reusing the earlier choice. The app's own silent updates
-; pass /CURRENTUSER or /ALLUSERS to match the install they replace (see DesktopUpdater.install).
+; "Install for me only" or "for all users" (admin) - asked on a fresh install. An update reuses the
+; existing install's choice, so its first page is the one with the Update button rather than that
+; question again. The app's own silent updates pass /CURRENTUSER or /ALLUSERS to match the install
+; they replace (see DesktopUpdater.install).
 PrivilegesRequiredOverridesAllowed=dialog commandline
-UsePreviousPrivileges=no
+UsePreviousPrivileges=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutDir}
