@@ -20,6 +20,8 @@ data class ImportSummary(
     val playlists: Int = 0,
     val playlistSongs: Int = 0,
     val skippedLocal: Int = 0,
+    /** The phone's YouTube Music playlists left out - see BackupImport.readPlaylists. */
+    val skippedYtmPlaylists: Int = 0,
     val plays: Int = 0,
     val error: String? = null,
     /** A desktop backup, set aside to replace the library when the app next starts. */
@@ -43,7 +45,8 @@ data class ImportSummary(
         }
         exported != null -> "Backed up to $exported."
         restoreStaged -> "Restored. Restart OuterTune to load the backup; the current library is kept as library-before-restore.db."
-        songs == 0 && playlists == 0 -> "Nothing to import - the backup held no songs or playlists."
+        songs == 0 && playlists == 0 && skippedYtmPlaylists == 0 ->
+            "Nothing to import - the backup held no songs or playlists."
         else -> buildString {
             append("Imported $songs ${if (songs == 1) "song" else "songs"}")
             if (liked > 0) append(", $liked liked")
@@ -53,6 +56,13 @@ data class ImportSummary(
             }
             if (plays > 0) append(", $plays ${if (plays == 1) "play" else "plays"} of history")
             if (skippedLocal > 0) append(". Skipped $skippedLocal local ${if (skippedLocal == 1) "file" else "files"}")
+            // Said outright, so a playlist missing after the import reads as a choice rather than
+            // a fault - and points at the switch that brings them in.
+            if (skippedYtmPlaylists > 0) {
+                append(". Left out $skippedYtmPlaylists YouTube Music ")
+                append(if (skippedYtmPlaylists == 1) "playlist" else "playlists")
+                append(" - ${if (skippedYtmPlaylists == 1) "it is" else "they are"} on the account already")
+            }
             append(".")
         }
     }
@@ -77,7 +87,11 @@ data class ImportSummary(
  */
 object BackupImport {
 
-    suspend fun importFrom(backup: File, library: LibraryStore): ImportSummary =
+    /**
+     * [includeYtmPlaylists]: whether the phone's YouTube Music playlists become local playlists here
+     * as well as its own - see [readPlaylists] and Settings.importYtmPlaylists.
+     */
+    suspend fun importFrom(backup: File, library: LibraryStore, includeYtmPlaylists: Boolean = false): ImportSummary =
         withContext(Dispatchers.IO) {
             val extracted = runCatching { extractDatabase(backup) }.getOrElse {
                 return@withContext ImportSummary(error = "Could not read the backup: ${it.message}")
@@ -92,7 +106,7 @@ object BackupImport {
                 // time so the window seemed frozen. As one unit it is seconds, and an import that
                 // fails partway leaves nothing half-done behind.
                 openReadOnly(extracted).use { connection ->
-                    library.database.transaction { read(connection, library) }
+                    library.database.transaction { read(connection, library, includeYtmPlaylists) }
                 }
             } catch (e: Exception) {
                 ImportSummary(error = "Could not read the backup's database: ${e.message}")
@@ -305,7 +319,7 @@ object BackupImport {
             it.createStatement().use { statement -> statement.execute("PRAGMA query_only=true") }
         }
 
-    private fun read(connection: Connection, library: LibraryStore): ImportSummary {
+    private fun read(connection: Connection, library: LibraryStore, includeYtmPlaylists: Boolean): ImportSummary {
         val credits = readCredits(connection)
         // Every song's album name and id, so its row can name the album and Go to album open it.
         val albums = readAlbums(connection)
@@ -369,7 +383,7 @@ object BackupImport {
             }
         }
 
-        val (playlists, playlistSongs) = readPlaylists(connection, library, imported)
+        val playlistsRead = readPlaylists(connection, library, imported, includeYtmPlaylists)
         // Every play the phone recorded - its event table - so Stats and Recently played carry the
         // phone's history rather than starting from nothing. Plays of songs that were not brought
         // across (local files) are left out, since there is nothing here for them to point at.
@@ -391,9 +405,10 @@ object BackupImport {
         return ImportSummary(
             songs = songs,
             liked = liked,
-            playlists = playlists,
-            playlistSongs = playlistSongs,
+            playlists = playlistsRead.added,
+            playlistSongs = playlistsRead.entries,
             skippedLocal = skippedLocal,
+            skippedYtmPlaylists = playlistsRead.skippedYtm,
             plays = playsAdded,
         )
     }
@@ -434,22 +449,52 @@ object BackupImport {
         return credits
     }
 
+    /** What [readPlaylists] did: playlists made, songs added to them, and YouTube Music ones left out. */
+    private data class PlaylistsRead(val added: Int, val entries: Int, val skippedYtm: Int)
+
+    /**
+     * The phone's playlists, as local playlists here.
+     *
+     * **YouTube Music playlists are left out unless [includeYtmPlaylists].** The phone keeps the
+     * account's playlists in the same table as its own, told apart by `browseId` - the playlist's id
+     * on YouTube Music, set only for one that came from or was synced to the account (the phone's
+     * PlaylistEntity). This app shows those straight from the account, so importing them as well
+     * gave every one a stale local twin beside the real thing.
+     *
+     * A backup from before the column existed has none, so every playlist in it reads as the
+     * phone's own and is imported, which is what such a backup always did.
+     */
     private fun readPlaylists(
         connection: Connection,
         library: LibraryStore,
         imported: Map<String, StoredSong>,
-    ): Pair<Int, Int> {
+        includeYtmPlaylists: Boolean,
+    ): PlaylistsRead {
         var added = 0
         var entries = 0
+        var skippedYtm = 0
 
         val existing = library.playlists.value.associateBy { it.name }
         val toImport = mutableListOf<Pair<String, String>>()
         runCatching {
-            connection.prepareStatement("SELECT id, name FROM playlist").use { statement ->
+            val hasBrowseId = connection.createStatement().use { st ->
+                st.executeQuery("PRAGMA table_info(playlist)").use { rs ->
+                    generateSequence { if (rs.next()) rs.getString("name") else null }.any { it == "browseId" }
+                }
+            }
+            connection.prepareStatement(
+                "SELECT id, name${if (hasBrowseId) ", browseId" else ""} FROM playlist"
+            ).use { statement ->
                 statement.executeQuery().use { rows ->
                     while (rows.next()) {
                         val id = rows.getString("id") ?: continue
                         val name = rows.getString("name")?.takeIf { it.isNotBlank() } ?: continue
+                        // Blank as well as null: an empty id points at nothing on the account.
+                        val ytm = hasBrowseId && !rows.getString("browseId").isNullOrBlank()
+                        if (ytm && !includeYtmPlaylists) {
+                            skippedYtm++
+                            continue
+                        }
                         toImport += id to name
                     }
                 }
@@ -479,6 +524,6 @@ object BackupImport {
                 }
             }
         }
-        return added to entries
+        return PlaylistsRead(added, entries, skippedYtm)
     }
 }

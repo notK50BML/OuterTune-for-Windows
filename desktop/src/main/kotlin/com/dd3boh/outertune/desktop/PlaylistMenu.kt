@@ -33,6 +33,13 @@ data class PlaylistActions(
     val addToQueue: (() -> Unit)? = null,
     val addToPlaylist: (() -> Unit)? = null,
     val startRadio: (() -> Unit)? = null,
+    /** Download every song not yet saved. Left out once they all are, or while nothing can be. */
+    val download: (() -> Unit)? = null,
+    /**
+     * Remove the downloads of every song in it. The caller asks first (see removeDownloads in
+     * Main.kt), so that the menu, the "Downloaded" button and an album's button all ask the same way.
+     */
+    val removeDownloads: (() -> Unit)? = null,
     /** Fetch it again from YouTube Music - the phone's Sync. */
     val sync: (() -> Unit)? = null,
     /** True while [sync] is running: its tile spins. */
@@ -65,6 +72,8 @@ fun PlaylistMenuButton(actions: PlaylistActions, modifier: Modifier = Modifier) 
                 tile("Add to queue", OuterTuneIcons.queueMusicRounded, actions.addToQueue)
                 tile("Add to playlist", OuterTuneIcons.playlistAdd, actions.addToPlaylist)
                 tile("Start radio", OuterTuneIcons.radio, actions.startRadio)
+                tile("Download", OuterTuneIcons.download, actions.download)
+                tile("Remove downloads", OuterTuneIcons.offlinePin, actions.removeDownloads)
                 tile(if (actions.syncing) "Syncing…" else "Sync", OuterTuneIcons.refresh, actions.sync, busy = actions.syncing)
                 tile("Edit", OuterTuneIcons.edit, actions.rename)
                 tile("Export M3U", OuterTuneIcons.download, actions.exportM3u)

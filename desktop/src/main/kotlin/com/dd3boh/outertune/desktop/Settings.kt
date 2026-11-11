@@ -467,6 +467,16 @@ class Settings(private val store: SettingsStore) {
     /** How many to keep before the oldest is deleted. */
     var autoBackupKeep by int("backup.autoKeep", 5)
 
+    /**
+     * Whether an Android backup's YouTube Music playlists are imported as local playlists too - see
+     * BackupImport.readPlaylists.
+     *
+     * Off by default. Those playlists live on the account, which this app already shows when signed
+     * in, so copying them in as well leaves every one of them listed twice: once as the real thing
+     * and once as a local copy that no longer follows it.
+     */
+    var importYtmPlaylists by bool("backup.importYtmPlaylists", false)
+
     /** Whether played songs are recorded at all. */
     var keepHistory by bool("library.history", true)
 
@@ -501,9 +511,10 @@ class Settings(private val store: SettingsStore) {
     /** Whether plays are synced through the cloud (CloudPlaySync) with the devices sharing [playSyncCode]. */
     var playSyncCloud by bool("playSync.cloud", false)
 
-    /** What cloud sync remembers between runs - see CloudSyncMemory. */
-    var cloudSyncRev by string("playSync.cloudRev", "")
-    var cloudSyncFingerprint by string("playSync.cloudFingerprint", "")
+    /** What Cloud relay remembers on this computer - see CloudSyncMemory. */
+    var relayDevice by string("playSync.relayDevice", "")
+    var relaySentUpTo by string("playSync.relaySent", "0")
+    var relayTaken by string("playSync.relayTaken", "")
 
     /**
      * The Stats page's chips, so it opens as it was left rather than on a month by plays every

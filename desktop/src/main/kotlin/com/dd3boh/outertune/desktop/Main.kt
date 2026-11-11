@@ -719,12 +719,15 @@ internal fun App(
         CloudSyncRunner(
             LibraryPlaySyncStore(library),
             object : CloudSyncMemory {
-                override var lastRev: String?
-                    get() = settings.cloudSyncRev.ifEmpty { null }
-                    set(value) { settings.cloudSyncRev = value.orEmpty() }
-                override var lastFingerprint: String?
-                    get() = settings.cloudSyncFingerprint.ifEmpty { null }
-                    set(value) { settings.cloudSyncFingerprint = value.orEmpty() }
+                override var deviceId: String?
+                    get() = settings.relayDevice.ifEmpty { null }
+                    set(value) { settings.relayDevice = value.orEmpty() }
+                override var sentUpTo: Long
+                    get() = settings.relaySentUpTo.toLongOrNull() ?: 0L
+                    set(value) { settings.relaySentUpTo = value.toString() }
+                override var taken: Set<String>
+                    get() = settings.relayTaken.split(',').filter { it.isNotBlank() }.toSet()
+                    set(value) { settings.relayTaken = value.joinToString(",") }
             },
         ).also { CloudSync.runner = it }
     }
@@ -748,6 +751,21 @@ internal fun App(
     val downloadLimiter = remember { DownloadLimiter() }
     val downloadSlots by downloadLimiter.limit.collectAsState()
 
+    // The downloads a whole list is about to lose, while the user is asked - see removeDownloads.
+    var confirmRemoveDownloads by remember { mutableStateOf<Set<String>?>(null) }
+
+    /**
+     * Removes the downloads of many songs at once - a playlist's, an album's, Liked songs' - after
+     * asking. Every such removal comes through here, so none of them can skip the question: one
+     * click on a "Downloaded" button could otherwise throw away hours of downloading. A single
+     * song's download is still removed straight away (toggleSongDownload), as it is cheap to redo.
+     * Only songs actually downloaded are counted, so the question names what will really go.
+     */
+    val removeDownloads: (Collection<String>) -> Unit = { ids ->
+        val gone = ids.filterTo(HashSet()) { it in downloadedIds }
+        if (gone.isNotEmpty()) confirmRemoveDownloads = gone
+    }
+
     /**
      * Downloads [songs], skipping any already saved, and puts each in the library first so it shows
      * under Downloaded. One list at a time; cancelling stops the songs in flight.
@@ -763,11 +781,8 @@ internal fun App(
         val todo = online.filter { it.id !in downloadedIds }
         if (todo.isEmpty()) {
             // Everything is already saved: the button reads "Downloaded", and pressing it removes
-            // the list's downloads, as pressing a downloaded song's mark does.
-            val gone = online.map { it.id }.toSet()
-            if (gone.isEmpty()) return@downloadAll
-            downloadedIds = downloadedIds - gone
-            scope.launch { withContext(Dispatchers.IO) { gone.forEach { library.downloads.delete(it) } } }
+            // the list's downloads, as pressing a downloaded song's mark does - once confirmed.
+            removeDownloads(online.map { it.id })
             return@downloadAll
         }
         batch = BatchDownload(title, todo.size)
@@ -1201,6 +1216,25 @@ internal fun App(
         )
     }
 
+    // Many downloads removed at once - see removeDownloads.
+    confirmRemoveDownloads?.let { gone ->
+        AlertDialog(
+            onDismissRequest = { confirmRemoveDownloads = null },
+            title = { Text(if (gone.size == 1) "Remove 1 downloaded song from this computer?" else "Remove ${gone.size} downloaded songs from this computer?") },
+            text = { Text("They stay in your library and playlists, and can be downloaded again.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemoveDownloads = null
+                    downloadedIds = downloadedIds - gone
+                    scope.launch { withContext(Dispatchers.IO) { gone.forEach { library.downloads.delete(it) } } }
+                }) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemoveDownloads = null }) { Text("Cancel") } },
+        )
+    }
+
 
     // A play counts once this share of the song has been heard - the phone's minimum playback
     // duration - so skipping through a queue does not fill history and Stats with songs not heard.
@@ -1360,6 +1394,26 @@ internal fun App(
             val target = if (file.extension.isEmpty()) java.io.File(file.path + ".m3u") else file
             withContext(Dispatchers.IO) { target.writeText(m3u(entries)) }
         }
+    }
+    // The same for a list of library songs - a playlist on this computer, Liked or Downloaded
+    // songs. A song on this computer is written as its file, with the length the file gives; the
+    // rest as their YouTube link, with a length of -1 since the library does not keep one per song.
+    val exportStoredM3u: (String, List<StoredSong>) -> Unit = { name, songs ->
+        val local = LocalMusic.tracks.value.associateBy { it.song.id }
+        exportM3u(name, songs.map { song ->
+            val track = local[song.id]
+            M3uEntry(
+                durationSeconds = track?.let { (it.durationMs / 1000).toInt() } ?: -1,
+                artists = song.artistList.takeIf { it.isNotEmpty() }?.joinToString(";") { it.name } ?: song.artists,
+                title = song.title,
+                location = m3uLocation(song.id, track?.file),
+            )
+        })
+    }
+    // Whether a list has anything left to download - its ⋮ offers Download only then. Songs on
+    // this computer are not counted, as downloadAll skips them.
+    val hasUndownloaded: (List<StoredSong>) -> Boolean = { songs ->
+        songs.any { it.id !in downloadedIds && !LocalMusic.isLocal(it.id) }
     }
     val startPlaylistRadio: (PlaylistItem) -> Unit = { playlist ->
         playlist.radioEndpoint?.let { endpoint ->
@@ -1806,6 +1860,10 @@ internal fun App(
                                 addToPlaylist = { addingListToPlaylist = playlist.title to songs.map { it.toStored() } }
                                     .takeIf { songs.isNotEmpty() },
                                 startRadio = playlist.radioEndpoint?.let { { startPlaylistRadio(playlist) } },
+                                download = { downloadAll(playlist.title, songs) }
+                                    .takeIf { songs.any { it.id !in downloadedIds && !LocalMusic.isLocal(it.id) } },
+                                removeDownloads = { removeDownloads(songs.map { it.id }) }
+                                    .takeIf { songs.any { it.id in downloadedIds } },
                                 sync = syncOnlinePlaylist,
                                 syncing = onlineSyncing,
                                 exportM3u = {
@@ -1917,18 +1975,28 @@ internal fun App(
                                 playNext = { playListNext(items) }.takeIf { songs.isNotEmpty() },
                                 addToQueue = { addListToQueue(items) }.takeIf { songs.isNotEmpty() },
                                 addToPlaylist = { addingListToPlaylist = playlist.name to songs }.takeIf { songs.isNotEmpty() },
-                                exportM3u = {
-                                    val local = LocalMusic.tracks.value.associateBy { it.song.id }
-                                    exportM3u(playlist.name, songs.map { song ->
-                                        val track = local[song.id]
-                                        M3uEntry(
-                                            durationSeconds = track?.let { (it.durationMs / 1000).toInt() } ?: -1,
-                                            artists = song.artistList.takeIf { it.isNotEmpty() }?.joinToString(";") { it.name } ?: song.artists,
-                                            title = song.title,
-                                            location = m3uLocation(song.id, track?.file),
-                                        )
-                                    })
-                                }.takeIf { songs.isNotEmpty() },
+                                download = { downloadAll(playlist.name, items) }.takeIf { hasUndownloaded(songs) },
+                                removeDownloads = { removeDownloads(songs.map { it.id }) }
+                                    .takeIf { songs.any { it.id in downloadedIds } },
+                                exportM3u = { exportStoredM3u(playlist.name, songs) }.takeIf { songs.isNotEmpty() },
+                            )
+                        },
+                        // Liked and Downloaded songs: what a playlist's ⋮ has, but never Edit, Delete
+                        // or Copy link - the app keeps these lists, and neither has a link. Downloaded
+                        // songs has no Download (all of it is) and no Remove downloads either: that
+                        // would empty the list in one go, and a song's own menu still removes one.
+                        autoMenuFor = { which, songs ->
+                            val title = if (which == "liked") "Liked songs" else "Downloaded songs"
+                            val items = songs.map { it.toItem() }
+                            val isLiked = which == "liked"
+                            PlaylistActions(
+                                playNext = { playListNext(items) }.takeIf { songs.isNotEmpty() },
+                                addToQueue = { addListToQueue(items) }.takeIf { songs.isNotEmpty() },
+                                addToPlaylist = { addingListToPlaylist = title to songs }.takeIf { songs.isNotEmpty() },
+                                download = { downloadAll(title, items) }.takeIf { isLiked && hasUndownloaded(songs) },
+                                removeDownloads = { removeDownloads(songs.map { it.id }) }
+                                    .takeIf { isLiked && songs.any { it.id in downloadedIds } },
+                                exportM3u = { exportStoredM3u(title, songs) }.takeIf { songs.isNotEmpty() },
                             )
                         },
                         onMoveSong = { playlist, from, to ->

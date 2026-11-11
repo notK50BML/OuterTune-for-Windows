@@ -37,7 +37,8 @@ data class BatchDownload(
 
 /**
  * "Download" for a whole list of songs. Shows "Downloaded", with the phone's downloaded mark, once
- * every song is saved - pressing it then removes them - and a spinner while this list downloads.
+ * every song is saved - pressing it then removes them, once confirmed (removeDownloads in Main.kt) -
+ * and a spinner while this list downloads.
  */
 @Composable
 fun DownloadAllButton(

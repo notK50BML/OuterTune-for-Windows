@@ -927,6 +927,24 @@ class Database(file: File) {
         }
     }
 
+    /** [syncPlays] recorded or added after row [afterRow], and the newest row - for Cloud relay. */
+    fun syncPlaysSince(afterRow: Long): Pair<List<SyncPlay>, Long> = synchronized(lock) {
+        val plays = connection.prepareStatement(
+            """
+            SELECT e.songId, e.playedAt, COALESCE(s.durationMs, 0)
+            FROM play_event e JOIN song s ON s.id = e.songId
+            WHERE e.id > ? AND e.songId NOT IN (SELECT songId FROM local_file)
+            """.trimIndent()
+        ).use { st ->
+            st.setLong(1, afterRow)
+            st.executeQuery().use { rs -> buildList { while (rs.next()) add(SyncPlay(rs.getString(1), rs.getLong(2), rs.getLong(3))) } }
+        }
+        val newest = connection.createStatement().use { st ->
+            st.executeQuery("SELECT COALESCE(MAX(id), 0) FROM play_event").use { rs -> if (rs.next()) rs.getLong(1) else 0L }
+        }
+        plays to maxOf(newest, afterRow)
+    }
+
     /** Each song's length in milliseconds, where known. */
     fun durations(ids: Collection<String>): Map<String, Long> = synchronized(lock) {
         val out = HashMap<String, Long>()

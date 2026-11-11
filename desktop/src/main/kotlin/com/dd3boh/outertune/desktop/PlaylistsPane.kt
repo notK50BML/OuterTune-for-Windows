@@ -91,6 +91,12 @@ fun PlaylistsPane(
     onToggleGrid: () -> Unit = {},
     /** The open playlist's ⋮: play next, add to queue, export... Rename and Delete are added here. */
     menuFor: (StoredPlaylist, List<StoredSong>) -> PlaylistActions = { _, _ -> PlaylistActions() },
+    /**
+     * The ⋮ of an automatic playlist - "liked" or "downloaded" - with its songs. Shown as given:
+     * Edit, Delete and Copy link are not added here as they are for [menuFor], since neither list
+     * is one the user made.
+     */
+    autoMenuFor: (String, List<StoredSong>) -> PlaylistActions = { _, _ -> PlaylistActions() },
 ) {
     var naming by remember { mutableStateOf<NameRequest?>(null) }
     // Which automatic playlist is open, if one is: "liked" or "downloaded", as on the phone.
@@ -126,6 +132,22 @@ fun PlaylistsPane(
                     TextButton(onClick = { onPlay(songs, 0, title) }) { Text("Play") }
                     TextButton(onClick = { onPlay(songs.shuffled(), 0, title) }) { Text("Shuffle") }
                 }
+                // Liked songs downloads as any playlist does. Downloaded songs does not: every song
+                // in it is downloaded already, so the button could only ever read "Downloaded" -
+                // and pressing that removes them all, which is not a thing to leave one click from
+                // the list of what is kept. A single song's download can still go from its own menu.
+                if (which == "liked" && onDownloadAll != null) {
+                    DownloadAllButton(
+                        songIds = songs.map { it.id },
+                        downloadedIds = downloadedIds,
+                        busy = downloadingTitle == title,
+                        onDownload = { onDownloadAll(title, songs) },
+                    )
+                }
+                // The playlist ⋮, less what makes no sense for a list the app keeps itself: it
+                // cannot be renamed, deleted or shared - see autoMenuFor. Not shown for an empty
+                // list, where every entry it has would be left out and it would open on nothing.
+                if (songs.isNotEmpty()) PlaylistMenuButton(autoMenuFor(which, songs))
             }
             if (songs.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

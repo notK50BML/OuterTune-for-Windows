@@ -84,6 +84,7 @@ enum class SettingsCategory(val label: String, val blurb: String) {
     // Local media lives in here, as it does on the phone, rather than in a section of its own.
     Content("Library and content", "Song details, region, local media"),
     ListenTogether("Listen Together", "Play in sync with other devices"),
+    Sync("Cross-device sync", "Cloud relay and WiFi sync of plays"),
     Privacy("Privacy and history", "Listening and search history, proxy"),
     Storage("Storage and downloads", "Downloaded songs"),
     Backup("Backup and restore", "Backups and settings profiles"),
@@ -101,6 +102,7 @@ private fun SettingsCategory.icon(): ImageVector = when (this) {
     SettingsCategory.Content -> OuterTuneIcons.musicNote
     SettingsCategory.Account -> OuterTuneIcons.accountCircle
     SettingsCategory.ListenTogether -> OuterTuneIcons.cast
+    SettingsCategory.Sync -> OuterTuneIcons.cloudDownload
     SettingsCategory.Storage -> OuterTuneIcons.download
     SettingsCategory.Privacy -> OuterTuneIcons.history
     SettingsCategory.Backup -> OuterTuneIcons.restore
@@ -195,7 +197,10 @@ internal val SETTING_ENTRIES = listOf(
 
     SettingEntry("Keep listening history", SettingsCategory.Privacy, "history recent stats record"),
     SettingEntry("Share listening history with YouTube Music", SettingsCategory.Privacy, "history account remote plays"),
-    SettingEntry("Count plays from other devices", SettingsCategory.Privacy, "stats remote youtube music history"),
+    SettingEntry("Cross-device sync", SettingsCategory.Sync, "sync devices plays stats code link phone computer"),
+    SettingEntry("Cloud relay", SettingsCategory.Sync, "sync cloud firebase online relay plays"),
+    SettingEntry("Sync over WiFi", SettingsCategory.Sync, "sync wifi lan network local plays"),
+    SettingEntry("Count plays from YouTube Music history", SettingsCategory.Sync, "stats remote youtube music history other devices"),
     SettingEntry("Clear listening history", SettingsCategory.Privacy, "history delete stats reset"),
     SettingEntry("Search history", SettingsCategory.Privacy, "search recent queries clear keep"),
     SettingEntry("Use a proxy", SettingsCategory.Privacy, "proxy http socks network address"),
@@ -373,6 +378,7 @@ fun SettingsPane(
                     DiscordSettings(settings)
                 }
                 SettingsCategory.ListenTogether -> ListenTogetherSettings(settings, listenTogether)
+                SettingsCategory.Sync -> CrossDeviceSyncSettings(settings, account)
                 SettingsCategory.Storage -> DownloadSettings(downloads, onDownloadsChanged)
                 SettingsCategory.Privacy -> PrivacySettings(settings, library, account)
                 SettingsCategory.Backup -> BackupSettings(settings, library, libraryPath, onProfileApplied)
@@ -1529,19 +1535,38 @@ private fun DownloadSettings(downloads: Downloads, onDownloadsChanged: () -> Uni
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // Asked about first, as every removal of many downloads at once is (see removeDownloads in
+        // Main.kt): this one is every download there is.
+        var confirmDeleteAll by remember { mutableStateOf(false) }
         if (count > 0) {
             SettingRow(
                 title = "Delete all downloads",
                 icon = OuterTuneIcons.delete,
                 tint = MaterialTheme.colorScheme.error,
-                onClick = {
-                    total = 0
-                    count = 0
-                    scope.launch {
-                        withContext(Dispatchers.IO) { downloads.deleteAll() }
-                        onDownloadsChanged()
+                onClick = { confirmDeleteAll = true },
+            )
+        }
+        if (confirmDeleteAll) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteAll = false },
+                title = {
+                    Text(if (count == 1) "Remove 1 downloaded song from this computer?" else "Remove $count downloaded songs from this computer?")
+                },
+                text = { Text("They stay in your library and playlists, and can be downloaded again.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDeleteAll = false
+                        total = 0
+                        count = 0
+                        scope.launch {
+                            withContext(Dispatchers.IO) { downloads.deleteAll() }
+                            onDownloadsChanged()
+                        }
+                    }) {
+                        Text("Remove", color = MaterialTheme.colorScheme.error)
                     }
                 },
+                dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
             )
         }
     }
@@ -1573,6 +1598,16 @@ private fun BackupSettings(settings: Settings, library: LibraryStore, libraryPat
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // Beside the import it changes rather than in a section of its own, as it means nothing
+        // without one. Off by default - see Settings.importYtmPlaylists.
+        SettingSwitch(
+            title = "Include YouTube Music playlists",
+            subtitle = "Also copies the phone's YouTube Music playlists in as local ones. " +
+                "They already show here from the account.",
+            checked = settings.importYtmPlaylists,
+            onCheckedChange = { settings.importYtmPlaylists = it },
+            divider = false,
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(
                 enabled = !importing,
@@ -1590,7 +1625,7 @@ private fun BackupSettings(settings: Settings, library: LibraryStore, libraryPat
                                 { ImportSummary(error = "Could not read that backup: ${it.message}") },
                             )
                         } else {
-                            BackupImport.importFrom(file, library)
+                            BackupImport.importFrom(file, library, includeYtmPlaylists = settings.importYtmPlaylists)
                         }
                         importing = false
                     }
@@ -1744,6 +1779,24 @@ private fun BackupSettings(settings: Settings, library: LibraryStore, libraryPat
  * syncing plays with them over WiFi - what makes their plays count here. Where "Count plays from
  * other devices" used to be; that switch (the YouTube Music history) is kept here as the rough extra.
  */
+/** The Cross-device sync tab. */
+@Composable
+private fun CrossDeviceSyncSettings(settings: Settings, account: Account) {
+    val accountState by account.state.collectAsState()
+    PlaySyncSection(settings, accountState is AccountState.SignedIn)
+}
+
+/** A small heading between the sync section's groups. */
+@Composable
+private fun SyncHeading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp),
+    )
+}
+
 @Composable
 private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
     Section("Cross-device sync") {
@@ -1765,6 +1818,7 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                 onClick = {
                     settings.playSyncCode = SyncCode.generate()
                     settings.playSyncWifi = true
+                    settings.playSyncCloud = CloudSyncConfig.configured
                 },
             )
             SettingRow(
@@ -1796,6 +1850,7 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                         onClick = {
                             settings.playSyncCode = valid.orEmpty()
                             settings.playSyncWifi = true
+                            settings.playSyncCloud = CloudSyncConfig.configured
                             entering = false
                             typed = TextFieldValue("")
                         },
@@ -1816,6 +1871,75 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                     copied = true
                 },
             )
+            // Cloud relay first: it works from anywhere, so it is the one most people want. WiFi sync
+            // below is the no-internet alternative.
+            SyncHeading("Cloud relay")
+            SettingSwitch(
+                title = "Cloud relay",
+                subtitle = if (CloudSyncConfig.configured) {
+                    "Passes new plays between your devices through the cloud, from anywhere. Each batch waits online " +
+                        "only until all your devices have it (30 days at most), then it's deleted. Encrypted with your " +
+                        "sync code before it leaves this computer, so only your devices can read it. No account needed."
+                } else {
+                    "Not available in this version yet."
+                },
+                checked = settings.playSyncCloud && CloudSyncConfig.configured,
+                onCheckedChange = { if (CloudSyncConfig.configured) settings.playSyncCloud = it },
+                icon = OuterTuneIcons.cloudDownload,
+            )
+            if (settings.playSyncCloud && CloudSyncConfig.configured) {
+                val cloudStatus by (CloudSync.runner?.status ?: CloudSync.idle).collectAsState()
+                val last = cloudStatus.last
+                val lastAt = cloudStatus.lastAt
+                SettingRow(
+                    title = if (cloudStatus.syncing) "Syncing…" else "Click to sync now",
+                    subtitle = when {
+                        cloudStatus.error != null -> "Last try failed (${cloudStatus.error})."
+                        last != null && lastAt != null -> "Synced ${java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                            .format(java.time.Instant.ofEpochMilli(lastAt).atZone(java.time.ZoneId.systemDefault()))}: " +
+                            "${last.received} new plays here, ${last.sent} sent."
+                        else -> "Not synced yet."
+                    },
+                    icon = OuterTuneIcons.refresh,
+                    onClick = { CloudSync.runner?.syncNow() },
+                )
+                var resent by remember { mutableStateOf(false) }
+                SettingRow(
+                    title = "Send everything again",
+                    subtitle = if (resent) "Sending everything again." else
+                        "Sends all of this computer's plays and asks your other devices for all of theirs, e.g. after " +
+                            "reinstalling. Nothing is counted twice.",
+                    icon = OuterTuneIcons.share,
+                    onClick = {
+                        CloudSync.runner?.resendAll(code)
+                        resent = true
+                    },
+                )
+            }
+            if (CloudSyncConfig.configured) {
+                var deleting by remember { mutableStateOf(false) }
+                var deleteResult by remember { mutableStateOf<String?>(null) }
+                SettingRow(
+                    title = if (deleting) "Click again to delete your plays from the cloud" else "Delete my plays from the cloud",
+                    subtitle = deleteResult ?: ("Removes everything waiting online for this sync code, for every linked " +
+                        "device, and turns Cloud relay off here. Plays on your devices stay."),
+                    icon = OuterTuneIcons.delete,
+                    tint = MaterialTheme.colorScheme.error,
+                    onClick = {
+                        if (deleting) {
+                            deleting = false
+                            settings.playSyncCloud = false
+                            CloudSync.runner?.deleteCloudData(code) { ok ->
+                                deleteResult = if (ok) "Cloud data deleted." else "Couldn't delete the cloud data."
+                            }
+                        } else {
+                            deleting = true
+                        }
+                    },
+                )
+            }
+
+            SyncHeading("WiFi sync")
             SettingSwitch(
                 title = "Sync over WiFi",
                 subtitle = "Swaps plays with your other devices whenever they're on the same network with OuterTune open. " +
@@ -1846,58 +1970,8 @@ private fun PlaySyncSection(settings: Settings, signedIn: Boolean) {
                     onClick = { PlaySync.manager?.syncNow() },
                 )
             }
-            SettingSwitch(
-                title = "Cloud sync",
-                subtitle = if (CloudSyncConfig.configured) {
-                    "Keeps your plays in an encrypted store online, so your devices sync from anywhere, not just on " +
-                        "the same WiFi. They're encrypted with your sync code before they leave this computer, so only " +
-                        "your devices can find or read them. No account needed."
-                } else {
-                    "Not available in this version yet."
-                },
-                checked = settings.playSyncCloud && CloudSyncConfig.configured,
-                onCheckedChange = { if (CloudSyncConfig.configured) settings.playSyncCloud = it },
-                icon = OuterTuneIcons.cloudDownload,
-            )
-            if (settings.playSyncCloud && CloudSyncConfig.configured) {
-                val cloudStatus by (CloudSync.runner?.status ?: CloudSync.idle).collectAsState()
-                val last = cloudStatus.last
-                val lastAt = cloudStatus.lastAt
-                SettingRow(
-                    title = if (cloudStatus.syncing) "Syncing…" else "Click to sync now",
-                    subtitle = when {
-                        cloudStatus.error != null -> "Last try failed (${cloudStatus.error})."
-                        last != null && lastAt != null -> "Synced ${java.time.format.DateTimeFormatter.ofPattern("HH:mm")
-                            .format(java.time.Instant.ofEpochMilli(lastAt).atZone(java.time.ZoneId.systemDefault()))}: " +
-                            "${last.received} new plays here, ${last.sent} sent."
-                        else -> "Not synced yet."
-                    },
-                    icon = OuterTuneIcons.refresh,
-                    onClick = { CloudSync.runner?.syncNow() },
-                )
-            }
-            if (CloudSyncConfig.configured) {
-                var deleting by remember { mutableStateOf(false) }
-                var deleteResult by remember { mutableStateOf<String?>(null) }
-                SettingRow(
-                    title = if (deleting) "Click again to delete your plays from the cloud" else "Delete my plays from the cloud",
-                    subtitle = deleteResult ?: ("Removes everything stored online for this sync code, for every linked device, " +
-                        "and turns cloud sync off here. Plays on your devices stay."),
-                    icon = OuterTuneIcons.delete,
-                    tint = MaterialTheme.colorScheme.error,
-                    onClick = {
-                        if (deleting) {
-                            deleting = false
-                            settings.playSyncCloud = false
-                            CloudSync.runner?.deleteCloudData(code) { ok ->
-                                deleteResult = if (ok) "Cloud data deleted." else "Couldn't delete the cloud data."
-                            }
-                        } else {
-                            deleting = true
-                        }
-                    },
-                )
-            }
+
+            SyncHeading("This computer")
             var unlinking by remember { mutableStateOf(false) }
             SettingRow(
                 title = if (unlinking) "Click again to unlink" else "Unlink this computer",
@@ -1974,7 +2048,7 @@ private fun PrivacySettings(settings: Settings, library: LibraryStore, account: 
         )
     }
 
-    PlaySyncSection(settings, signedIn)
+
 
     Section("Search history") {
         SettingSwitch(

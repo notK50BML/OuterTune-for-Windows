@@ -15,6 +15,8 @@ class LibraryPlaySyncStore(private val library: LibraryStore) : PlaySyncStore {
 
     override fun plays(): List<SyncPlay> = library.database.syncPlays()
 
+    override fun playsSince(afterRow: Long): Pair<List<SyncPlay>, Long> = library.database.syncPlaysSince(afterRow)
+
     override fun songs(ids: Collection<String>): List<SyncSong> {
         val durations = library.database.durations(ids)
         return library.database.songs(ids).map { song ->
