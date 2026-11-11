@@ -19,6 +19,13 @@ class KeyBindingsTest {
         assertEquals(KeyAction.PlayPause, b.actionFor(Chord.key(AwtKey.VK_SPACE)))
         assertEquals(KeyAction.Equaliser, b.actionFor(Chord.key(AwtKey.VK_E)))
         assertEquals(KeyAction.Next, b.actionFor(Chord.ctrl(AwtKey.VK_RIGHT)))
+        // J, K and L: previous, play/pause, next. Like is on Shift+L; Shuffle and Repeat have no key.
+        assertEquals(KeyAction.Previous, b.actionFor(Chord.key(AwtKey.VK_J)))
+        assertEquals(KeyAction.PlayPause, b.actionFor(Chord.key(AwtKey.VK_K)))
+        assertEquals(KeyAction.Next, b.actionFor(Chord.key(AwtKey.VK_L)))
+        assertEquals(KeyAction.Like, b.actionFor(Chord.shift(AwtKey.VK_L)))
+        assertEquals(null, b.actionFor(Chord.key(AwtKey.VK_S)))
+        assertEquals(null, b.actionFor(Chord.key(AwtKey.VK_R)))
         assertEquals("", b.encode())
     }
 
@@ -28,8 +35,8 @@ class KeyBindingsTest {
         val b = KeyBindings.DEFAULT.bind(KeyAction.Shuffle, Chord.key(AwtKey.VK_E)).bindings
         assertEquals(KeyAction.Shuffle, b.actionFor(Chord.key(AwtKey.VK_E)))
         assertTrue(b.chordsFor(KeyAction.Equaliser).isEmpty())
-        // Shuffle keeps its own S too: an action can have several keys.
-        assertEquals(KeyAction.Shuffle, b.actionFor(Chord.key(AwtKey.VK_S)))
+        // Shuffle had no key of its own, so E is now its only one.
+        assertEquals(listOf(Chord.key(AwtKey.VK_E)), b.chordsFor(KeyAction.Shuffle))
     }
 
     @Test
@@ -51,28 +58,28 @@ class KeyBindingsTest {
 
     @Test
     fun resettingDoesNotLeaveTwoActionsHoldingOneKey() {
-        // The three steps that used to collide: move Like off L, give L to Shuffle - which is
+        // The three steps that used to collide: move Like off Shift+L, give Shift+L to Shuffle - which is
         // allowed, because Like no longer holds it - then put Like back.
         val moved = KeyBindings.DEFAULT.bind(KeyAction.Like, Chord.key(AwtKey.VK_B)).bindings
             .with(KeyAction.Like, listOf(Chord.key(AwtKey.VK_B)))
-        val taken = moved.bind(KeyAction.Shuffle, Chord.key(AwtKey.VK_L)).bindings
-        assertEquals(KeyAction.Shuffle, taken.actionFor(Chord.key(AwtKey.VK_L)))
+        val taken = moved.bind(KeyAction.Shuffle, Chord.shift(AwtKey.VK_L)).bindings
+        assertEquals(KeyAction.Shuffle, taken.actionFor(Chord.shift(AwtKey.VK_L)))
 
         val back = taken.reset(KeyAction.Like)
-        // L is Like's again, and Shuffle no longer claims it - so actionFor is not deciding this
+        // Shift+L is Like's again, and Shuffle no longer claims it - so actionFor is not deciding this
         // by enum declaration order, which is what used to hand the press to Shuffle.
-        assertEquals(KeyAction.Like, back.bindings.actionFor(Chord.key(AwtKey.VK_L)))
-        assertTrue(Chord.key(AwtKey.VK_L) !in back.bindings.chordsFor(KeyAction.Shuffle))
+        assertEquals(KeyAction.Like, back.bindings.actionFor(Chord.shift(AwtKey.VK_L)))
+        assertTrue(Chord.shift(AwtKey.VK_L) !in back.bindings.chordsFor(KeyAction.Shuffle))
         assertEquals(listOf(KeyAction.Shuffle), back.displaced.map { it.action })
-        // Shuffle keeps S, so it is still usable and the message says only what moved.
-        assertEquals("L taken from Shuffle", back.message)
+        // Shuffle has no key by default, so losing Shift+L leaves it with none - said out loud.
+        assertEquals("Shuffle now has no key", back.message)
     }
 
     @Test
     fun resettingAnUntouchedActionDisplacesNothing() {
         val r = KeyBindings.DEFAULT.reset(KeyAction.Like)
         assertEquals(emptyList<Rebind.Displaced>(), r.displaced)
-        assertEquals(KeyAction.Like, r.bindings.actionFor(Chord.key(AwtKey.VK_L)))
+        assertEquals(KeyAction.Like, r.bindings.actionFor(Chord.shift(AwtKey.VK_L)))
     }
 
     @Test

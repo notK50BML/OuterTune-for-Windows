@@ -79,16 +79,20 @@ data class Chord(val code: Int, val ctrl: Boolean = false, val alt: Boolean = fa
 /** Everything a key can do. The defaults are what a fresh install has; each can be changed. */
 enum class KeyAction(val label: String, val defaults: List<Chord>) {
     PlayPause("Play / pause", listOf(Chord.key(AwtKey.VK_SPACE), Chord.key(AwtKey.VK_K))),
-    Next("Next song", listOf(Chord.ctrl(AwtKey.VK_RIGHT), Chord.shift(AwtKey.VK_N))),
-    Previous("Previous song", listOf(Chord.ctrl(AwtKey.VK_LEFT), Chord.shift(AwtKey.VK_P))),
+    // J, K and L as previous, play/pause and next - the row under the right hand, as on YouTube.
+    Next("Next song", listOf(Chord.key(AwtKey.VK_L), Chord.ctrl(AwtKey.VK_RIGHT), Chord.shift(AwtKey.VK_N))),
+    Previous("Previous song", listOf(Chord.key(AwtKey.VK_J), Chord.ctrl(AwtKey.VK_LEFT), Chord.shift(AwtKey.VK_P))),
     SeekForward("Forward 10 seconds", listOf(Chord.key(AwtKey.VK_RIGHT))),
     SeekBack("Back 10 seconds", listOf(Chord.key(AwtKey.VK_LEFT))),
     VolumeUp("Volume up", listOf(Chord.key(AwtKey.VK_UP))),
     VolumeDown("Volume down", listOf(Chord.key(AwtKey.VK_DOWN))),
     Mute("Mute", listOf(Chord.key(AwtKey.VK_M))),
-    Shuffle("Shuffle", listOf(Chord.key(AwtKey.VK_S))),
-    Repeat("Repeat", listOf(Chord.key(AwtKey.VK_R))),
-    Like("Like", listOf(Chord.key(AwtKey.VK_L))),
+    // No key by default, as in most players: a stray S or R changing how the queue plays was more
+    // often an accident than a wish. Either can be given one in Keyboard shortcuts.
+    Shuffle("Shuffle", emptyList()),
+    Repeat("Repeat", emptyList()),
+    // Shift+L rather than L, which is Next now - and liking by a single stray key was too easy.
+    Like("Like", listOf(Chord.shift(AwtKey.VK_L))),
     Equaliser("Equaliser", listOf(Chord.key(AwtKey.VK_E))),
     Lyrics("Lyrics", listOf(Chord.key(AwtKey.VK_Y))),
     Queue("Queue", listOf(Chord.key(AwtKey.VK_Q))),
