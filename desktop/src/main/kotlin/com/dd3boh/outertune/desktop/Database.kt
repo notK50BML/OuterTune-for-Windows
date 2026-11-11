@@ -383,6 +383,26 @@ class Database(file: File) {
                     st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_play_event_song_at ON play_event(songId, playedAt)")
                 }
             }
+            if (current < 17) {
+                connection.createStatement().use { st ->
+                    // The header of each artist page opened - name, about text, picture address - so
+                    // the page opens on it after a restart while the rest is fetched. See PageCache.
+                    // Its own table rather than columns on artist: that table holds only artists the
+                    // library has songs by, and any artist's page can be opened. A cache, so no
+                    // foreign keys, and trimmed to the most recent in putArtistPage.
+                    st.executeUpdate(
+                        """
+                        CREATE TABLE IF NOT EXISTS artist_page (
+                            id          TEXT PRIMARY KEY NOT NULL,
+                            name        TEXT NOT NULL,
+                            description TEXT,
+                            thumbnail   TEXT,
+                            fetchedAt   INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                }
+            }
             connection.createStatement().use { it.executeUpdate("PRAGMA user_version=$SCHEMA_VERSION") }
             connection.commit()
         } catch (e: Exception) {
@@ -672,6 +692,47 @@ class Database(file: File) {
             st.setString(1, url)
             st.setString(2, artistId)
             st.executeUpdate()
+        }
+    }
+
+    // ---- artist pages ---------------------------------------------------------------------------
+
+    fun artistPage(artistId: String): StoredArtistPage? = synchronized(lock) {
+        connection.prepareStatement(
+            "SELECT id, name, description, thumbnail, fetchedAt FROM artist_page WHERE id = ?"
+        ).use { st ->
+            st.setString(1, artistId)
+            st.executeQuery().use { rs ->
+                if (rs.next()) StoredArtistPage(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getLong(5))
+                else null
+            }
+        }
+    }
+
+    fun putArtistPage(page: StoredArtistPage) {
+        synchronized(lock) {
+            connection.prepareStatement(
+                """
+                INSERT INTO artist_page (id, name, description, thumbnail, fetchedAt) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
+                    thumbnail = excluded.thumbnail, fetchedAt = excluded.fetchedAt
+                """.trimIndent()
+            ).use { st ->
+                st.setString(1, page.id)
+                st.setString(2, page.name)
+                st.setString(3, page.description)
+                st.setString(4, page.thumbnail)
+                st.setLong(5, page.fetchedAt)
+                st.executeUpdate()
+            }
+            // A cache, not a record: the most recently fetched few hundred are plenty, and it would
+            // otherwise grow with every artist ever glanced at - backups included.
+            connection.createStatement().use { st ->
+                st.executeUpdate(
+                    "DELETE FROM artist_page WHERE id NOT IN " +
+                        "(SELECT id FROM artist_page ORDER BY fetchedAt DESC LIMIT $ARTIST_PAGES_KEPT)"
+                )
+            }
         }
     }
 
@@ -1731,7 +1792,10 @@ class Database(file: File) {
 
     companion object {
         /** Bumped whenever [migrate] gains a step. */
-        const val SCHEMA_VERSION = 16
+        const val SCHEMA_VERSION = 17
+
+        /** How many artist page headers [putArtistPage] keeps - see PageCache. */
+        private const val ARTIST_PAGES_KEPT = 400
 
         fun defaultFile(): File = File(defaultDataDirectory(), "library.db")
     }

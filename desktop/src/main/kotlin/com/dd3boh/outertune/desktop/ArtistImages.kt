@@ -69,8 +69,16 @@ object ArtistImages {
                 memory[artist.id] = stored
                 return@withContext stored
             }
+            // Or from the artist's page, if it was opened - any session. See PageCache.
+            PageCache.storedArtist(artist.id)?.thumbnail?.takeIf { it.isNotBlank() }?.let { stored ->
+                memory[artist.id] = stored
+                return@withContext stored
+            }
             gate.withPermit {
-                val page = YouTube.artist(artist.id).getOrNull()?.artist
+                val whole = YouTube.artist(artist.id).getOrNull()
+                // Fetched in full anyway, so kept: opening this artist next shows it at once.
+                whole?.let { PageCache.putArtist(artist.id, it) }
+                val page = whole?.artist
                 // The page is fetched anyway, so its current name is learned too - see ArtistRenamer.
                 page?.title?.let { ArtistRenamer.learned(artist.id, it) }
                 val fetched = page?.thumbnail

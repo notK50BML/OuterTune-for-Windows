@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -135,7 +136,23 @@ fun ArtistPane(
     }
     var linking by remember { mutableStateOf(false) }
 
-    var content by remember(artist.id) { mutableStateOf<ArtistContent>(ArtistContent.Loading) }
+    // Stale while it revalidates - see PageCache. The page as it was when last opened this session
+    // shows at once, whole; failing that, the header kept from any earlier session (name, about
+    // text, picture). Either way it is fetched afresh below and replaced when that arrives. Read
+    // here rather than in the effect so the first frame already has it: one row by primary key.
+    val cachedPage = remember(artist.id) { if (artist.linkable) PageCache.artist(artist.id) else null }
+    val stored = remember(artist.id) {
+        if (artist.linkable && cachedPage == null) PageCache.storedArtist(artist.id) else null
+    }
+    // The picture the library already has for them, fetched for its artist grid or Stats - better
+    // than an empty circle on a first visit.
+    val knownThumbnail = remember(artist.id) {
+        if (artist.linkable) runCatching { library.artistThumbnail(artist.id) }.getOrNull()?.takeIf { it.isNotBlank() }
+        else null
+    }
+    var content by remember(artist.id) {
+        mutableStateOf<ArtistContent>(cachedPage?.let { ArtistContent.Loaded(it) } ?: ArtistContent.Loading)
+    }
     val librarySongs = remember(artist.id) { library.songsByArtist(artist.id) }
     var more by remember(artist.id) { mutableStateOf<ArtistSection?>(null) }
 
@@ -146,23 +163,26 @@ fun ArtistPane(
             content = ArtistContent.Loaded(null)
             return@LaunchedEffect
         }
-        content = withContext(Dispatchers.IO) {
-            YouTube.artist(artist.id).fold(
-                onSuccess = {
-                    // Kept for Stats and the Library, which show this artist without opening them.
-                    ArtistImages.remember(artist.id, it.artist.thumbnail)
-                    // And its current name, which every song crediting it then shows.
-                    ArtistRenamer.learned(artist.id, it.artist.title)
-                    ArtistContent.Loaded(it)
-                },
-                // YouTube's own error is a wall of JSON that helps nobody. With songs by this
-                // artist in the library the page shows those, as for an unlinked artist; with
-                // none, a sentence.
-                onFailure = {
-                    if (librarySongs.isNotEmpty()) ArtistContent.Loaded(null)
-                    else ArtistContent.Failed("Couldn't find this artist on YouTube Music.")
-                },
-            )
+        val result = withContext(Dispatchers.IO) {
+            YouTube.artist(artist.id).onSuccess {
+                // Kept for Stats and the Library, which show this artist without opening them.
+                ArtistImages.remember(artist.id, it.artist.thumbnail)
+                // And its current name, which every song crediting it then shows.
+                ArtistRenamer.learned(artist.id, it.artist.title)
+                // And the page itself, for opening it again.
+                PageCache.putArtist(artist.id, it)
+            }
+        }
+        val fresh = result.getOrNull()
+        if (fresh != null) {
+            content = ArtistContent.Loaded(fresh)
+        } else if ((content as? ArtistContent.Loaded)?.page == null) {
+            // A page already showing from the cache stays as it is: offline, or YouTube having a
+            // bad moment, should not take away what was there. Otherwise - YouTube's own error is a
+            // wall of JSON that helps nobody - with songs by this artist in the library the page
+            // shows those, as for an unlinked artist; with none, a sentence.
+            content = if (librarySongs.isNotEmpty()) ArtistContent.Loaded(null)
+            else ArtistContent.Failed("Couldn't find this artist on YouTube Music.")
         }
     }
 
@@ -194,7 +214,13 @@ fun ArtistPane(
     }
 
     val page = (content as? ArtistContent.Loaded)?.page
-    val name = page?.artist?.title?.withoutTopic() ?: artist.name
+    // Nothing of the page yet - neither fetched nor kept from this session - so its shape is drawn
+    // instead (see artistPlaceholders), and the header holds whatever is already known.
+    val waiting = content is ArtistContent.Loading
+    val name = page?.artist?.title?.withoutTopic() ?: stored?.name?.withoutTopic()?.ifBlank { null } ?: artist.name
+    val thumbnail = page?.artist?.thumbnail ?: stored?.thumbnail?.ifBlank { null } ?: knownThumbnail
+    // The fetched page's word on the description is final, none included; until then, the kept one.
+    val description = if (page != null) page.description else stored?.description
     val sections = page?.sections.orEmpty()
         .map { it.copy(items = it.items.visible()) }
         .filter { it.items.isNotEmpty() }
@@ -222,13 +248,15 @@ fun ArtistPane(
             )
         }
     }
+    // Every item keyed, so the list keeps its place by item rather than by position as the page
+    // fills in and as a fresh copy replaces a cached one.
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item {
+        item(key = "header") {
             ArtistHeader(
                 name = name,
-                thumbnail = page?.artist?.thumbnail,
-                description = page?.description,
-                loading = content is ArtistContent.Loading,
+                thumbnail = thumbnail,
+                description = description,
+                loading = waiting,
                 canPlay = allSongs.isNotEmpty(),
                 onPlay = { onPlay(allSongs, 0) },
                 onShuffle = {
@@ -239,7 +267,7 @@ fun ArtistPane(
         }
 
         if (!artist.linkable || linkedFrom.isNotEmpty()) {
-            item {
+            item(key = "link") {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(horizontal = 28.dp),
@@ -266,7 +294,7 @@ fun ArtistPane(
         }
 
         (content as? ArtistContent.Failed)?.let { failed ->
-            item {
+            item(key = "failed") {
                 Text(
                     failed.reason,
                     style = MaterialTheme.typography.bodyMedium,
@@ -276,9 +304,13 @@ fun ArtistPane(
             }
         }
 
-        sections.forEach { section ->
+        if (waiting) artistPlaceholders()
+
+        // Keyed by position as well as title: two shelves YouTube happens to title alike would
+        // otherwise share a key, which a lazy list does not survive.
+        sections.forEachIndexed { sectionIndex, section ->
             val songsOnly = section.items.all { it is SongItem }
-            item(key = "head-${section.title}") {
+            item(key = "head-$sectionIndex-${section.title}") {
                 SectionHeader(
                     title = section.title,
                     onMore = section.moreEndpoint?.let { { more = section } },
@@ -287,11 +319,12 @@ fun ArtistPane(
             if (songsOnly) {
                 // The phone's top-songs list: five rows, the rest behind the arrow.
                 val shown = section.items.filterIsInstance<SongItem>().take(TOP_SONGS)
-                itemsIndexed(shown, key = { _, song -> "${section.title}-${song.id}" }) { index, song ->
+                val shownKeys = uniqueKeys(shown) { it.id }
+                itemsIndexed(shown, key = { i, _ -> "song-$sectionIndex-${shownKeys[i]}" }) { index, song ->
                     SongListRow(song, index + 1, playing = song.id == currentId) { open(song, section.items) }
                 }
             } else {
-                item(key = "row-${section.title}") {
+                item(key = "row-$sectionIndex-${section.title}") {
                     val sideState0 = rememberLazyListState()
                     LazyRow(
                         state = sideState0,
@@ -309,8 +342,9 @@ fun ArtistPane(
         }
 
         if (librarySongs.isNotEmpty()) {
-            item { SectionHeader(title = "In your library", onMore = null) }
-            itemsIndexed(librarySongs, key = { _, song -> "lib-${song.id}" }) { index, song ->
+            item(key = "lib-head") { SectionHeader(title = "In your library", onMore = null) }
+            val libraryKeys = uniqueKeys(librarySongs) { it.id }
+            itemsIndexed(librarySongs, key = { i, _ -> "lib-${libraryKeys[i]}" }) { index, song ->
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 20.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
                         StoredSongRow(song, playing = song.id == currentId) {
@@ -322,7 +356,7 @@ fun ArtistPane(
         }
 
         if (content !is ArtistContent.Loading && sections.isEmpty() && librarySongs.isEmpty()) {
-            item {
+            item(key = "empty") {
                 Box(modifier = Modifier.fillMaxWidth().padding(64.dp), contentAlignment = Alignment.Center) {
                     Text(
                         "Nothing to show for this artist.",
@@ -403,7 +437,12 @@ internal fun ArtistHeader(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp),
             ) {
                 if (thumbnail != null) {
+                    // From ArtworkCache, memory then disk, so a picture seen before draws at once.
                     Artwork(thumbnail, size = ARTIST_PORTRAIT, cornerRadius = ARTIST_PORTRAIT / 2)
+                } else if (loading) {
+                    // No picture known yet, but one may be coming: a plain disc the picture's size
+                    // rather than the no-picture icon, which would read as "this artist has none".
+                    PlaceholderBox(Modifier.size(ARTIST_PORTRAIT), cornerRadius = ARTIST_PORTRAIT / 2)
                 } else {
                     Box(
                         contentAlignment = Alignment.Center,
@@ -462,18 +501,83 @@ internal fun ArtistHeader(
     }
     if (!description.isNullOrBlank()) {
         var expanded by remember(description) { mutableStateOf(false) }
+        // Clipped to a rounded box with the text padded inside it, as the song rows are, so its
+        // highlight is a panel around the paragraph rather than a hard edge along the letters. The
+        // outer and inner padding add up to the 28dp every other line on the page starts at.
         Text(
             description,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = if (expanded) Int.MAX_VALUE else 3,
+            maxLines = if (expanded) Int.MAX_VALUE else DESCRIPTION_LINES,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
-                .padding(horizontal = 28.dp, vertical = 4.dp)
-                .clickable { expanded = !expanded },
+                .padding(horizontal = 16.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .pointerHoverIcon(PointerIcon.Hand)
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    } else if (loading) {
+        // Room for the description that may be coming - the collapsed paragraph's three lines and
+        // the same padding - so the shelves below do not move down when it arrives.
+        PlaceholderLines(
+            MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+            lines = DESCRIPTION_LINES,
+            lastLineFraction = 0.4f,
         )
     }
 }
+
+/** The description's lines before it is clicked open. */
+private const val DESCRIPTION_LINES = 3
+
+/** A [SectionHeader] while its title is not known yet, the same height and inset. */
+@Composable
+private fun SectionHeaderPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp, top = 14.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        PlaceholderLines(MaterialTheme.typography.titleLarge, modifier = Modifier.width(180.dp), lastLineFraction = 1f)
+    }
+}
+
+/**
+ * The shape of an artist's page before any of it has arrived: top songs, then two shelves of cards -
+ * what nearly every artist has, at their real sizes. The real sections replace these from the top,
+ * so the header and description above never move.
+ */
+private fun LazyListScope.artistPlaceholders() {
+    item(key = "placeholder-songs-head") { SectionHeaderPlaceholder() }
+    items(TOP_SONGS, key = { "placeholder-song-$it" }) {
+        // SongListRow's insets: 20dp outside, 8dp inside, then the 28dp rank column before the
+        // thumbnail - less the 4dp SongRowPlaceholder pads with itself.
+        SongRowPlaceholder(modifier = Modifier.padding(start = 52.dp, end = 24.dp))
+    }
+    repeat(2) { shelf ->
+        item(key = "placeholder-shelf-head-$shelf") { SectionHeaderPlaceholder() }
+        item(key = "placeholder-shelf-$shelf") {
+            // A lazy row so the cards past the window's edge are simply not drawn; not scrollable,
+            // as there is nothing to scroll to.
+            LazyRow(
+                userScrollEnabled = false,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(horizontal = 28.dp),
+            ) {
+                items(PLACEHOLDER_CARDS, key = { "placeholder-card-$it" }) { CardPlaceholder() }
+            }
+        }
+    }
+}
+
+/** Enough placeholder cards to fill the widest window's shelf. */
+private const val PLACEHOLDER_CARDS = 12
+
+/** Enough placeholder song rows to fill a tall window. */
+private const val PLACEHOLDER_ROWS = 14
 
 /** A section title, with an arrow through to everything in it when there is more. */
 @Composable
@@ -594,7 +698,26 @@ private fun MoreItems(
             )
         }
         when (val current = state) {
-            MoreContent.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            // The list or grid's shape rather than a spinner, guessed from the shelf it came from -
+            // the same as the artist page's own placeholders, so the items land where these were.
+            MoreContent.Loading -> if (section.items.all { it is SongItem }) {
+                LazyColumn(userScrollEnabled = false, contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(PLACEHOLDER_ROWS, key = { "placeholder-$it" }) {
+                        SongRowPlaceholder(modifier = Modifier.padding(start = 52.dp, end = 24.dp))
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(176.dp),
+                    userScrollEnabled = false,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    contentPadding = PaddingValues(horizontal = 28.dp, vertical = 8.dp),
+                ) {
+                    val round = section.items.firstOrNull() is ArtistItem
+                    items(PLACEHOLDER_CARDS * 2, key = { "placeholder-$it" }) { CardPlaceholder(round = round) }
+                }
+            }
             is MoreContent.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(current.reason, color = MaterialTheme.colorScheme.error)
             }
@@ -759,8 +882,9 @@ private fun LinkArtistDialog(name: String, onDismiss: () -> Unit, onPick: (Artis
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
                                     .clickable { onPick(item) }
-                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                    .padding(vertical = 6.dp, horizontal = 8.dp),
                             ) {
                                 Box(modifier = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)) {
                                     Artwork(item.thumbnail, size = 40.dp, cornerRadius = 0.dp)

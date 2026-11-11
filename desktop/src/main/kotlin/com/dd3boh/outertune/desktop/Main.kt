@@ -346,7 +346,7 @@ private fun runApplication() = application {
         // Windows' media controls, once the window exists to attach them to.
         LaunchedEffect(Unit) { WindowsMediaControls.start(window) }
 
-        MaterialTheme(colorScheme = finalScheme, typography = typography) {
+        OuterTuneTheme(colorScheme = finalScheme, typography = typography) {
             val captionTint = remember { CaptionTint() }
             CompositionLocalProvider(
                 LocalCaptionInset provides (if (customChrome) WindowChrome.height else 0.dp),
@@ -390,6 +390,7 @@ internal fun App(
     remember(library) {
         ArtistImages.library = library
         ArtistRenamer.library = library
+        PageCache.library = library
     }
     // Where a restored queue's song was when the last session ended - see the persistent queue.
     var restoredPositionMs by remember { mutableStateOf<Long?>(null) }
@@ -587,7 +588,15 @@ internal fun App(
     }
     LaunchedEffect(openAlbumId) {
         val id = openAlbumId ?: return@LaunchedEffect
-        album = AlbumState.Loading
+        // An album already opened this session is shown as it was at once, and fetched again behind
+        // it - see PageCache. Only a successful fetch replaces it: offline, the kept copy stays.
+        val cached = PageCache.album(id)
+        album = cached?.let { AlbumState.Ready(it) } ?: AlbumState.Loading
+        if (cached != null) {
+            val fresh = loadAlbum(id)
+            if (fresh is AlbumState.Ready && openAlbumId == id) album = fresh
+            return@LaunchedEffect
+        }
         // A song whose album id is not known yet: found first, the page spinning meanwhile, then
         // swapped for the real id - which runs this again to load it. See AlbumLookup.
         if (id.startsWith(ALBUM_OF_SONG)) {

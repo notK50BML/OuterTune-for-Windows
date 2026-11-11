@@ -529,27 +529,44 @@ private fun CardBody(item: YTItem, playing: Boolean, onClick: () -> Unit) {
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
+        // Every card the same height: two lines kept for the title and one for the subtitle, used
+        // or not. A carousel is as tall as the tallest card it has laid out, and it lays out only the
+        // ones in view - so with cards of different heights the row grew as it was scrolled sideways
+        // and pushed everything under it down. It also lets CardPlaceholder be exactly this size.
         Text(
             text = item.title,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (playing) FontWeight.Bold else FontWeight.Normal,
             color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = if (artist) TextAlign.Center else TextAlign.Start,
             modifier = Modifier.fillMaxWidth(),
         )
-        item.shownSubtitle().takeIf { it.isNotBlank() }?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = if (artist) TextAlign.Center else TextAlign.Start,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        Text(
+            text = item.shownSubtitle(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = if (artist) TextAlign.Center else TextAlign.Start,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/**
+ * A card while its shelf loads, the same size as [Card] - square or round picture, two title lines
+ * and a subtitle line - so the shelf is already its real height when the cards arrive.
+ */
+@Composable
+internal fun CardPlaceholder(round: Boolean = false) {
+    Column(modifier = Modifier.width(CARD_WIDTH)) {
+        PlaceholderBox(Modifier.size(CARD_WIDTH), cornerRadius = if (round) CARD_WIDTH / 2 else 8.dp)
+        Spacer(modifier = Modifier.height(8.dp))
+        PlaceholderLines(MaterialTheme.typography.bodyMedium, lines = 2, lastLineFraction = 0.55f)
+        PlaceholderLines(MaterialTheme.typography.bodySmall, lastLineFraction = 0.4f)
     }
 }
 

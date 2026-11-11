@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -60,7 +61,11 @@ sealed interface AlbumState {
  */
 suspend fun loadAlbum(browseId: String): AlbumState = withContext(Dispatchers.IO) {
     YouTube.album(browseId).fold(
-        onSuccess = { AlbumState.Ready(it) },
+        onSuccess = {
+            // Kept for the session, so opening it again shows it at once - see PageCache.
+            PageCache.putAlbum(browseId, it)
+            AlbumState.Ready(it)
+        },
         onFailure = {
             AlbumState.Failed("Could not load this album: ${it.message ?: it::class.simpleName}")
         },
@@ -131,10 +136,16 @@ fun AlbumPane(
         }
 
         when (state) {
-            AlbumState.Loading -> Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+            // The page's own layout with stand-ins rather than a spinner in the middle: the header
+            // at its real size and a column of track rows, so when the album arrives the cover,
+            // title and tracks land where these were instead of everything dropping into place.
+            // Keyed as the loaded page's header is, so the list treats it as the same item.
+            AlbumState.Loading -> LazyColumn(modifier = Modifier.fillMaxSize(), userScrollEnabled = false) {
+                item(key = "header") { HeaderPlaceholder() }
+                items(PLACEHOLDER_TRACKS, key = { "placeholder-$it" }) {
+                    SongRowPlaceholder(modifier = Modifier.padding(start = 44.dp))
+                }
+            }
 
             is AlbumState.Failed -> Box(
                 modifier = Modifier.fillMaxSize().padding(48.dp),
@@ -150,8 +161,11 @@ fun AlbumPane(
 
             is AlbumState.Ready -> {
                 val page = state.page
+                // Keyed throughout, so a fresh copy replacing a cached one keeps the list in place.
+                // Per copy, as a track can appear twice - see uniqueKeys.
+                val trackKeys = uniqueKeys(page.songs) { it.id }
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item {
+                    item(key = "header") {
                         Header(
                             page = page,
                             onPlay = { onPlay(page.songs, 0) },
@@ -169,7 +183,7 @@ fun AlbumPane(
                             },
                         )
                     }
-                    itemsIndexed(page.songs) { index, song ->
+                    itemsIndexed(page.songs, key = { i, _ -> "track-${trackKeys[i]}" }) { index, song ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "${index + 1}",
@@ -187,7 +201,7 @@ fun AlbumPane(
                     }
                     albumShelf("Other versions", page.otherVersions, onOpenAlbum)
                     albumShelf("Similar albums", page.similarAlbums, onOpenAlbum)
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                    item(key = "end") { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
         }
@@ -209,6 +223,40 @@ private fun LazyListScope.albumShelf(title: String, albums: List<AlbumItem>, onO
             val albumsUniqueKeys = uniqueKeys(albums) { it.browseId }
             itemsIndexed(albums, key = { i, _ -> albumsUniqueKeys[i] }) { _, album ->
                 Card(item = album, playing = false) { onOpen(album.browseId) }
+            }
+        }
+    }
+}
+
+/** Enough placeholder track rows to fill a tall window. */
+private const val PLACEHOLDER_TRACKS = 12
+
+/**
+ * [Header] before the album has arrived: the cover's square at its real size, which fixes the
+ * header's height, and bars for the title, artist and details beside disabled buttons.
+ */
+@Composable
+private fun HeaderPlaceholder() {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 12.dp)) {
+        PlaceholderBox(Modifier.size(220.dp), cornerRadius = 10.dp)
+        Spacer(modifier = Modifier.width(28.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            PlaceholderLines(MaterialTheme.typography.headlineMedium, modifier = Modifier.width(360.dp), lastLineFraction = 1f)
+            Spacer(modifier = Modifier.height(4.dp))
+            PlaceholderLines(MaterialTheme.typography.titleMedium, modifier = Modifier.width(200.dp), lastLineFraction = 1f)
+            PlaceholderLines(MaterialTheme.typography.bodySmall, modifier = Modifier.width(120.dp), lastLineFraction = 1f)
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = {}, enabled = false) {
+                    Icon(OuterTuneIcons.play, contentDescription = null, modifier = Modifier.width(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Play")
+                }
+                OutlinedButton(onClick = {}, enabled = false) {
+                    Icon(OuterTuneIcons.shuffle, contentDescription = null, modifier = Modifier.width(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Shuffle")
+                }
             }
         }
     }

@@ -301,7 +301,7 @@ fun NowPlayingScreen(
         DynamicTheme.schemeFor(primary, dark = onBackground == Color.White)
     }
 
-    MaterialTheme(colorScheme = playerScheme) {
+    OuterTuneTheme(colorScheme = playerScheme) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
     // Wide enough for both, and the queue is what the width is spent on.
     //

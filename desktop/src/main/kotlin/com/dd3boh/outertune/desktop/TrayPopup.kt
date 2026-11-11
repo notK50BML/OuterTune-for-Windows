@@ -294,7 +294,7 @@ private fun TrayPopupWindow(
         val live by player.live.collectAsState()
         // The theme the main window is showing, cover colours and font included; until it has drawn
         // once, the app's default for the system's light or dark.
-        MaterialTheme(
+        OuterTuneTheme(
             colorScheme = TrayControls.colors ?: DynamicTheme.schemeFor(null, isSystemInDarkTheme()),
             typography = TrayControls.typography ?: Typography(),
         ) {
