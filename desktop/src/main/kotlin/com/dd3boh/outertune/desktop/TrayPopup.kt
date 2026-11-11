@@ -576,7 +576,7 @@ private fun TraySeek(
     hasSong: Boolean,
     onSeek: (Long) -> Unit,
 ) {
-    val seekable = hasSong && !live && durationMs > 0
+    val seekable = hasSong && durationMs > 0
     val seek by rememberUpdatedState(onSeek)
     val duration by rememberUpdatedState(durationMs)
     val interaction = remember { MutableInteractionSource() }
@@ -623,7 +623,7 @@ private fun TraySeek(
     ) {
         val fraction = dragFraction ?: when {
             !hasSong -> 0f
-            live -> 1f
+            live && durationMs <= 0 -> 1f
             durationMs > 0 -> (positionMs().toFloat() / durationMs).coerceIn(0f, 1f)
             else -> 0f
         }
@@ -641,7 +641,7 @@ private fun TraySeek(
         modifier = Modifier.fillMaxWidth().height(TIME_ROW_HEIGHT).padding(horizontal = SECTION_PADDING),
     ) {
         when {
-            live -> LiveLabel()
+            live -> LiveClock(positionMs, durationMs, onSeek)
             seekable -> {
                 SeekClock { formatClock(dragFraction?.let { (it * durationMs).toLong() } ?: positionMs()) }
                 Spacer(Modifier.weight(1f))

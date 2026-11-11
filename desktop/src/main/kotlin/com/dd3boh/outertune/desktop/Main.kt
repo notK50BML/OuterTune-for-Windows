@@ -424,6 +424,9 @@ internal fun App(
     // bar and a clock. It is handed down as a provider and read only where it is shown.
     val positionState = player.positionMs.collectAsState()
     val duration by player.durationMs.collectAsState()
+    // A live stream's rewind window, whose end is now - stands in for the length on its seek bars.
+    val liveWindow by player.liveWindowMs.collectAsState()
+    val playingLive by player.live.collectAsState()
 
     var query by remember { mutableStateOf("") }
     // What was last searched for; null when no search is showing.
@@ -1089,6 +1092,7 @@ internal fun App(
     // The same while the next song is being fetched: the player has no length for it yet either,
     // and the bar used to vanish for those seconds - between every two songs of a station.
     val shownDuration = when {
+        playingLive -> liveWindow
         duration > 0 -> duration
         // A song from the library carries no length of its own; a file on this computer knows it.
         else -> queue.current?.let { song ->

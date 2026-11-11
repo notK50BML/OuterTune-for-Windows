@@ -152,6 +152,13 @@ class DesktopPlayer {
         /** How far the position moves before it is published again behind a minimised window. */
         const val BACKGROUND_POSITION_STEP_MS = 250L
         const val LIVE_RETRY_MS = 1_000L
+
+        /**
+         * How far back a live stream can be sought. YouTube keeps a broadcast's recent segments for
+         * rewinding, typically hours of them; this asks for no more than an hour's worth, and a
+         * segment it no longer has leaves the stream where it was.
+         */
+        const val LIVE_REWIND_MS = 60 * 60_000L
         const val AAC_FRAME_SAMPLES = 1024L
 
         /** The same codec at ~48kbps, and at ~256kbps (Premium accounts only). */
@@ -188,6 +195,9 @@ class DesktopPlayer {
 
     /** The current track is a live stream - shown as LIVE, with no length and nowhere to seek. */
     val live = MutableStateFlow(false)
+
+    /** A live stream's rewind window so far, whose end is now - see LiveSource. 0 for anything else. */
+    val liveWindowMs = MutableStateFlow(0L)
 
     private var job: Job? = null
 
@@ -337,7 +347,7 @@ class DesktopPlayer {
         // follower joins a song already in progress, and the drift corrector issues a seek on its
         // first tick because the follower is still at zero while the host is minutes in. Both
         // landed back at the start, which looks like the join simply not working.
-        val duration = durationMs.value
+        val duration = maxOf(durationMs.value, liveWindowMs.value)
         val target = if (duration > 0) ms.coerceIn(0, duration) else ms.coerceAtLeast(0)
         pendingSeekMs = target
         // Shown at once. The decode loop applies the seek on its next pass - after the write in
@@ -388,6 +398,7 @@ class DesktopPlayer {
         paused = false
         positionMs.value = 0
         durationMs.value = 0
+        liveWindowMs.value = 0
         pendingSeekMs = startAtMs.takeIf { it > 0 }
         nowPlayingId = videoId
         stream.value = null
@@ -604,6 +615,7 @@ class DesktopPlayer {
         currentAudio = null
         pendingSeekMs = null
         live.value = false
+        liveWindowMs.value = 0
         job?.cancel()
         job = null
         closeLine()
@@ -851,8 +863,12 @@ class DesktopPlayer {
      * It starts at the newest segment - the one a plain request returns, with its number in the
      * response's headers - and fetches the next while the current one plays. A segment that is not
      * out yet is waited for (the URL asks googlevideo to hold the request until it is), and a few
-     * failed attempts in a row end the stream as any song ends. There is no length and no seeking:
-     * a seek leaves it where it is.
+     * failed attempts in a row end the stream as any song ends.
+     *
+     * Seeking goes back in time, as on YouTube: the clock runs over a window of the last
+     * [LIVE_REWIND_MS] of segments, whose end is the newest one, and a seek starts reading at the
+     * segment that far in. Played from there it stays that far behind, as a paused stream does, until
+     * sought back to the end.
      */
     private inner class LiveSource(private val url: String) : PcmSource {
         private val fetcher = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
@@ -866,10 +882,17 @@ class DesktopPlayer {
         private var pending: ByteArray?
         private var upcoming: java.util.concurrent.Future<ByteArray?>? = null
         private var framesDecoded = 0L
+        /** The newest segment the stream has said it has, from each answer's headers. */
+        @Volatile private var headSeq = 0L
+        /** The oldest segment the window reaches back to: where its clock reads 0. */
+        private val baseSeq: Long
+        /** One segment's length, measured from the first. */
+        private val segmentMs: Long
 
         init {
             val (head, bytes) = fetchSegment(null) ?: error("the live stream did not answer")
             seq = head
+            headSeq = maxOf(headSeq, head)
             val iso = IsoFile(InMemoryChannel(bytes))
             decoder = Decoder.create(
                 audioSpecificConfigIn(bytes) ?: findAudioSpecificConfig(iso) ?: error("no AudioSpecificConfig in the live segment")
@@ -883,6 +906,9 @@ class DesktopPlayer {
                 first = buffer.data
             }
             pending = first
+            segmentMs = (samples.size * AAC_FRAME_SAMPLES * 1000 / buffer.sampleRate.coerceAtLeast(1))
+                .coerceIn(1_000L, 10_000L)
+            baseSeq = (seq - LIVE_REWIND_MS / segmentMs).coerceAtLeast(0)
         }
 
         override val sampleRate = buffer.sampleRate
@@ -890,6 +916,11 @@ class DesktopPlayer {
         override val bitsPerSample = buffer.bitsPerSample
         override val bigEndian = buffer.isBigEndian
         override val durationMs = 0L
+        override val startMs: Long get() = (seq - baseSeq) * segmentMs
+        override val liveWindowMs: Long get() = (headSeq - baseSeq + 1) * segmentMs
+
+        /** Where in the window playback is: the segment, and the frames into it. */
+        private fun here() = (seq - baseSeq) * segmentMs + index * AAC_FRAME_SAMPLES * 1000 / sampleRate.coerceAtLeast(1)
 
         override fun next(): ByteArray? {
             pending?.let {
@@ -935,6 +966,7 @@ class DesktopPlayer {
             connection.setRequestProperty("User-Agent", YouTubeClient.USER_AGENT_WEB)
             try {
                 if (connection.responseCode != 200) return@runCatching null
+                connection.getHeaderField("X-Head-Seqnum")?.toLongOrNull()?.let { if (it > headSeq) headSeq = it }
                 val number = connection.getHeaderField("X-Sequence-Num")?.toLongOrNull()
                     ?: sq ?: connection.getHeaderField("X-Head-Seqnum")?.toLongOrNull() ?: return@runCatching null
                 number to withoutEventMessages(connection.inputStream.use { it.readBytes() })
@@ -1008,8 +1040,29 @@ class DesktopPlayer {
             return out.toByteArray()
         }
 
-        /** Live has nowhere to seek to; the clock carries on from where it is. */
-        override fun seek(ms: Long): Long = framesDecoded * AAC_FRAME_SAMPLES * 1000 / sampleRate.coerceAtLeast(1)
+        /**
+         * Back (or forward) to the segment [ms] into the window, the newest at most. One YouTube no
+         * longer keeps, or a failed fetch, leaves playback where it was.
+         */
+        override fun seek(ms: Long): Long {
+            val target = (baseSeq + ms / segmentMs).coerceIn(baseSeq, headSeq)
+            if (target == seq) {
+                index = 0
+                pending = null
+                return here()
+            }
+            upcoming?.cancel(true)
+            val (_, bytes) = fetchSegment(target) ?: run {
+                prefetchNext()
+                return here()
+            }
+            seq = target
+            samples = runCatching { extractSamples(bytes, IsoFile(InMemoryChannel(bytes))) }.getOrDefault(emptyList())
+            index = 0
+            pending = null
+            prefetchNext()
+            return here()
+        }
 
         override fun close() {
             upcoming?.cancel(true)
@@ -1056,7 +1109,8 @@ class DesktopPlayer {
         // been written, because writing runs ahead of playing by however much the line has buffered
         // - reporting written frames would show a position a second or so into the future.
         var lineFrameBase = 0L
-        var trackMsBase = 0L
+        var trackMsBase = src.startMs
+        liveWindowMs.value = src.liveWindowMs
         // The tempo the current base was measured under. Changing tempo changes how much song one
         // second of output line represents, so the elapsed part has to be rebased at the moment it
         // changes - scaling the whole elapsed span by the new tempo would retroactively rewrite
@@ -1096,6 +1150,8 @@ class DesktopPlayer {
 
             val pcm = src.next() ?: break
             if (pcm.isEmpty()) continue
+            // A live stream's window grows as the broadcast goes on, and its end is "now".
+            src.liveWindowMs.let { if (it != liveWindowMs.value) liveWindowMs.value = it }
 
             // Equalised first, so what follows describes the audio that will actually be played -
             // the visualiser in particular measures the signal after this. In place, on the buffer
@@ -1199,6 +1255,7 @@ class DesktopPlayer {
         paused = false
         positionMs.value = 0
         this.durationMs.value = 0
+        liveWindowMs.value = 0
         nowPlayingId = songId
         state.value = PlaybackState.Loading(title)
         trackGain = 1f

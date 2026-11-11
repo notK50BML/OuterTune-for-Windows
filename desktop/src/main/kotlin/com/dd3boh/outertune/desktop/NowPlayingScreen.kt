@@ -694,9 +694,9 @@ fun NowPlayingScreen(
                                         )
                                     }
                                     SlimSeekBar(
-                                        positionMs = if (live) ({ 1L }) else positionMs,
-                                        durationMs = if (live) 1L else durationMs,
-                                        seekable = !live,
+                                        positionMs = if (live && durationMs <= 0) ({ 1L }) else positionMs,
+                                        durationMs = if (live && durationMs <= 0) 1L else durationMs,
+                                        seekable = !live || durationMs > 0,
                                         seekBarDot = seekBarDot,
                         weight = seekBarWeight,
                                         colour = onBackground,
@@ -706,7 +706,7 @@ fun NowPlayingScreen(
                                     )
                                     Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                                         if (live) {
-                                            LiveLabel()
+                                            LiveClock(positionMs, durationMs, onSeek)
                                         } else {
                                             PositionLabel(positionMs, onBackground)
                                             Text(if (durationMs > 0) formatDuration(durationMs) else "-:--", style = MaterialTheme.typography.bodySmall, color = onBackground)
@@ -891,9 +891,9 @@ fun NowPlayingScreen(
                     // and "how far through the song" is not a setting - colouring it implied the
                     // start of a track was a low value of something and the end a high one.
                     SlimSeekBar(
-                        positionMs = if (live) ({ 1L }) else positionMs,
-                        durationMs = if (live) 1L else durationMs,
-                        seekable = !live,
+                        positionMs = if (live && durationMs <= 0) ({ 1L }) else positionMs,
+                        durationMs = if (live && durationMs <= 0) 1L else durationMs,
+                        seekable = !live || durationMs > 0,
                         seekBarDot = seekBarDot,
                         weight = seekBarWeight,
                         colour = onBackground,
@@ -906,7 +906,7 @@ fun NowPlayingScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (live) {
-                            LiveLabel()
+                            LiveClock(positionMs, durationMs, onSeek)
                         } else {
                             PositionLabel(positionMs, onBackground)
                             Text(if (durationMs > 0) formatDuration(durationMs) else "-:--", style = MaterialTheme.typography.bodySmall, color = onBackground)
@@ -1230,6 +1230,43 @@ internal fun LiveLabel() {
 }
 
 internal val LIVE_RED = Color(0xFFFF4E45)
+
+/**
+ * A live stream's clock. At the live edge, the red LIVE. Behind it - sought back, or paused and
+ * played again - a grey LIVE and how far behind, "−1:23", as YouTube shows it; clicking LIVE then
+ * goes back to now. [durationMs] is the stream's window, whose end is now; 0 until it is known.
+ */
+@Composable
+internal fun LiveClock(positionMs: () -> Long, durationMs: Long, onSeek: ((Long) -> Unit)?) {
+    val behind = if (durationMs > 0) durationMs - positionMs() else 0L
+    if (behind < LIVE_EDGE_MS) {
+        LiveLabel()
+        return
+    }
+    val grey = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = if (onSeek != null) {
+                Modifier.clip(RoundedCornerShape(4.dp)).clickable { onSeek(durationMs) }.padding(horizontal = 2.dp)
+            } else {
+                Modifier
+            },
+        ) {
+            Box(modifier = Modifier.size(7.dp).background(grey, CircleShape))
+            Spacer(modifier = Modifier.width(5.dp))
+            Text("LIVE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = grey)
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("−" + formatDuration(behind), style = MaterialTheme.typography.labelSmall, color = grey)
+    }
+}
+
+/**
+ * How far behind the newest segment still counts as live: a segment is a few seconds, and the
+ * window's end only moves a segment at a time, so being just behind is the normal state of "now".
+ */
+private const val LIVE_EDGE_MS = 15_000L
 
 @Composable
 private fun PositionLabel(positionMs: () -> Long, colour: Color) {

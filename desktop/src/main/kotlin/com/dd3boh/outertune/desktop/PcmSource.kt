@@ -29,6 +29,15 @@ internal interface PcmSource : AutoCloseable {
     /** The track's length, or 0 when the format does not say. */
     val durationMs: Long
 
+    /** Where the clock starts: 0 for a track; for a live stream, the live edge within its window. */
+    val startMs: Long get() = 0
+
+    /**
+     * A live stream's seekable window so far - from the oldest moment it can go back to up to now,
+     * growing as the broadcast goes on. 0 for anything else.
+     */
+    val liveWindowMs: Long get() = 0
+
     /** The next block of PCM, possibly empty; null once the track has ended. */
     fun next(): ByteArray?
 

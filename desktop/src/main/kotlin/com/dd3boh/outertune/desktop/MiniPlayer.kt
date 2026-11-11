@@ -153,7 +153,7 @@ internal fun PlayerBar(
             .clickable(onClick = onExpand),
     ) {
         LinearProgressIndicator(
-            progress = { if (live) 1f else if (durationMs > 0) positionMs().toFloat() / durationMs else 0f },
+            progress = { if (live && durationMs <= 0) 1f else if (durationMs > 0) positionMs().toFloat() / durationMs else 0f },
             drawStopIndicator = { },
             modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.BottomCenter),
         )
@@ -248,7 +248,7 @@ internal fun PlayerBar(
                 when (button) {
                     MiniPlayerButtonKind.CLOCK -> if (song != null) {
                         Box(modifier = Modifier.padding(horizontal = 6.dp)) {
-                            if (live) LiveLabel() else ClockText(positionMs, durationMs)
+                            if (live) LiveClock(positionMs, durationMs, null) else ClockText(positionMs, durationMs)
                         }
                     }
                     // Nothing to like for a file on this computer - see PlayerButtonKind.forLocalFiles.
