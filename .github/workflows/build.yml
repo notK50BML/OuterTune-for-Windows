@@ -1,9 +1,9 @@
 name: Build
 
-# Run by hand from the Actions tab, or by pushing a tag such as v0.3.0.
-# A tag also makes a draft release with the installer and the portable zip; publish it from the
-# Releases page when it's ready. The app's updater ignores drafts, so nobody is offered a release
-# until it's published.
+# Run by hand from the Actions tab, or by pushing a tag such as v0.5-Windows.
+# A tag also makes a draft release with the installer; publish it from the Releases page when it's
+# ready. The app's updater ignores drafts, so nobody is offered a release until it's published.
+# Only the installer is built: the portable zip is no longer made.
 on:
   workflow_dispatch:
   push:
@@ -33,22 +33,20 @@ jobs:
             choco install innosetup -y --no-progress
           }
 
-      - name: Build the installer and the portable zip
+      - name: Build the installer
         shell: pwsh
-        run: ./gradlew.bat :desktop:installer :desktop:packageApp --stacktrace
+        run: ./gradlew.bat :desktop:installer --stacktrace
 
       - name: Report sizes
         shell: pwsh
         run: |
           function Mb($b) { '{0:N1} MB' -f ($b / 1MB) }
           $installer = Get-ChildItem desktop/build/dist -Filter 'OuterTune-setup-*.exe' | Select-Object -First 1
-          $zip = Get-Item desktop/build/dist/OuterTune-windows.zip
           $installed = (Get-ChildItem desktop/build/jpackage/OuterTune -Recurse -File | Measure-Object Length -Sum).Sum
           $runtime = (Get-ChildItem desktop/build/jpackage/OuterTune/runtime -Recurse -File | Measure-Object Length -Sum).Sum
           $lines = @(
             '| What | Size |', '|---|---|',
             "| Installer download ($($installer.Name)) | $(Mb $installer.Length) |",
-            "| Portable zip | $(Mb $zip.Length) |",
             "| Installed (unpacked app folder) | $(Mb $installed) |",
             "| ... of which the bundled Java runtime | $(Mb $runtime) |"
           )
@@ -58,9 +56,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OuterTune-for-Windows
-          path: |
-            desktop/build/dist/OuterTune-setup-*.exe
-            desktop/build/dist/OuterTune-windows.zip
+          path: desktop/build/dist/OuterTune-setup-*.exe
           if-no-files-found: error
 
       - name: Draft a release for the tag
@@ -69,5 +65,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $files = Get-ChildItem desktop/build/dist -File | Where-Object { $_.Name -like 'OuterTune-setup-*.exe' -or $_.Name -eq 'OuterTune-windows.zip' }
+          $files = Get-ChildItem desktop/build/dist -File -Filter 'OuterTune-setup-*.exe'
           gh release create $env:GITHUB_REF_NAME $files.FullName --draft --title "OuterTune for Windows $env:GITHUB_REF_NAME" --generate-notes
