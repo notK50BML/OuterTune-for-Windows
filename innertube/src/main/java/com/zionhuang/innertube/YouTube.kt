@@ -368,7 +368,9 @@ object YouTube {
             sections = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
                 ?.tabRenderer?.content?.sectionListRenderer?.contents
                 ?.mapNotNull(ArtistPage::fromSectionListRendererContent)!!,
-            description = response.header?.musicImmersiveHeaderRenderer?.description?.runs?.firstOrNull()?.text
+            description = response.header?.musicImmersiveHeaderRenderer?.description?.runs?.firstOrNull()?.text,
+            monthlyAudience = response.header?.musicImmersiveHeaderRenderer?.monthlyListenerCount?.runs
+                ?.joinToString("") { it.text }?.ifBlank { null },
         )
     }
 

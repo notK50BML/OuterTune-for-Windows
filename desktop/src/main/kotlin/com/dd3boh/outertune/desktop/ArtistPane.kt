@@ -256,6 +256,7 @@ fun ArtistPane(
                 name = name,
                 thumbnail = thumbnail,
                 description = description,
+                audience = page?.monthlyAudience,
                 loading = waiting,
                 canPlay = allSongs.isNotEmpty(),
                 onPlay = { onPlay(allSongs, 0) },
@@ -405,6 +406,8 @@ internal fun ArtistHeader(
     name: String,
     thumbnail: String?,
     description: String?,
+    /** "359M monthly audience" under the name, once the live page has said so. */
+    audience: String?,
     loading: Boolean,
     canPlay: Boolean,
     onPlay: () -> Unit,
@@ -479,6 +482,15 @@ internal fun ArtistHeader(
                             Spacer(modifier = Modifier.width(12.dp))
                             CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                         }
+                    }
+                    if (!audience.isNullOrBlank()) {
+                        Text(
+                            audience,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                     }
                 }
             }

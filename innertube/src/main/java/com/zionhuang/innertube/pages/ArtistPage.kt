@@ -26,6 +26,8 @@ data class ArtistPage(
     val artist: ArtistItem,
     val sections: List<ArtistSection>,
     val description: String?,
+    /** "359M monthly audience", as YouTube words it; null when the page gives none. */
+    val monthlyAudience: String? = null,
 ) {
     companion object {
         fun fromSectionListRendererContent(content: SectionListRenderer.Content): ArtistSection? {

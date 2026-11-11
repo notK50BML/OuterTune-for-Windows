@@ -95,6 +95,8 @@ data class BrowseResponse(
             val startRadioButton: Button?,
             val subscriptionButton: SubscriptionButton?,
             val menu: Menu,
+            /** "359M monthly audience", as YouTube words it. */
+            val monthlyListenerCount: Runs? = null,
         )
 
         @Serializable
