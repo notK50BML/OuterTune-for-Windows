@@ -269,7 +269,13 @@ private fun runApplication() = application {
             // while the window was still being shown, it sometimes came up minimised instead.
             if (startMaximised) {
                 while (!window.isShowing) kotlinx.coroutines.delay(16)
+                // Without Windows' maximise animation: with it, the window was seen growing to fill
+                // the screen at every start. Back on once the maximise has gone through, so the
+                // user's own maximising and minimising animate as usual.
+                WindowTransitions.setEnabled(window, false)
                 windowState.placement = androidx.compose.ui.window.WindowPlacement.Maximized
+                kotlinx.coroutines.delay(400)
+                WindowTransitions.setEnabled(window, true)
             }
         }
         // Brought forward once it is showing again: asked while it was still hidden, toFront does

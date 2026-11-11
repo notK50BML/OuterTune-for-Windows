@@ -125,7 +125,7 @@ fun HomePane(
         // In the phone's order: the mood filters, then what you are likely to want right now, then
         // what you were listening to, then what you have not heard in a while, then YouTube's feed.
         if (chips.isNotEmpty()) {
-            item {
+            item(key = "chips", contentType = "chips") {
                 val sideState0 = rememberLazyListState()
                 LazyRow(
                     state = sideState0,
@@ -145,7 +145,7 @@ fun HomePane(
             }
         }
         if (recentActivity.isNotEmpty() && selectedChip == null) {
-            item {
+            item(key = "recent-activity", contentType = "shelf") {
                 Section(
                     section = HomePage.Section("Recent activity", null, null, null, recentActivity),
                     currentId = currentId,
@@ -157,7 +157,7 @@ fun HomePane(
             }
         }
         if (quickPicks.isNotEmpty()) {
-            item {
+            item(key = "quick-picks", contentType = "grid") {
                 SongGrid(
                     title = "Quick picks",
                     songs = quickPicks,
@@ -166,7 +166,7 @@ fun HomePane(
             }
         }
         if (recent.isNotEmpty()) {
-            item {
+            item(key = "keep-listening", contentType = "row") {
                 StoredRow(
                     title = "Keep listening",
                     songs = recent,
@@ -176,7 +176,7 @@ fun HomePane(
         }
         // Not while a mood chip is lit: then the page is that mood, and these are not.
         if (yourPlaylists.isNotEmpty() && selectedChip == null) {
-            item {
+            item(key = "your-playlists", contentType = "shelf") {
                 Section(
                     section = HomePage.Section("Your YouTube playlists", null, null, null, yourPlaylists),
                     currentId = currentId,
@@ -188,7 +188,7 @@ fun HomePane(
             }
         }
         if (forgotten.isNotEmpty()) {
-            item {
+            item(key = "forgotten", contentType = "grid") {
                 SongGrid(
                     title = "Forgotten favourites",
                     songs = forgotten,
@@ -197,7 +197,7 @@ fun HomePane(
             }
         }
         if (liked.isNotEmpty()) {
-            item {
+            item(key = "liked", contentType = "row") {
                 StoredRow(
                     title = "Liked songs",
                     songs = liked,
@@ -207,14 +207,14 @@ fun HomePane(
         }
 
         when (state) {
-            HomeState.Loading -> item {
+            HomeState.Loading -> item(key = "loading", contentType = "status") {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
             }
 
-            is HomeState.Empty -> item {
+            is HomeState.Empty -> item(key = "empty", contentType = "status") {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(48.dp),
                     contentAlignment = Alignment.Center,
@@ -255,7 +255,20 @@ fun HomePane(
                     if (newReleases.isNotEmpty()) add(HomePage.Section("New releases", null, null, null, newReleases))
                     addAll(sections.drop(4))
                 }
-                items(feed) { section ->
+                // Keyed, so the list holds on to the shelf being looked at as others arrive around it.
+                // Keyed by index it held on to a position instead: the "Similar to" shelves and new
+                // releases land in the middle of the feed as they load, and everything under the
+                // reader moved down with each - the jitter while Home loaded. A title can repeat, so
+                // the key also counts how many of that title came before.
+                val feedKeys = run {
+                    val seen = HashMap<String, Int>()
+                    feed.map { section ->
+                        val n = seen.merge(section.title, 1, Int::plus)!!
+                        "feed:${section.title}:$n"
+                    }
+                }
+                items(feed.size, key = { feedKeys[it] }, contentType = { "shelf" }) { index ->
+                    val section = feed[index]
                     Section(
                         section = section,
                         currentId = currentId,
@@ -266,7 +279,7 @@ fun HomePane(
                     )
                 }
                 if (loadingMore) {
-                    item {
+                    item(key = "loading-more", contentType = "status") {
                         Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(modifier = Modifier.size(28.dp))
                         }
