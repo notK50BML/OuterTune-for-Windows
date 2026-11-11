@@ -718,17 +718,8 @@ internal fun App(
     val cloudSync = remember {
         CloudSyncRunner(
             LibraryPlaySyncStore(library),
-            object : CloudSyncMemory {
-                override var deviceId: String?
-                    get() = settings.relayDevice.ifEmpty { null }
-                    set(value) { settings.relayDevice = value.orEmpty() }
-                override var sentUpTo: Long
-                    get() = settings.relaySentUpTo.toLongOrNull() ?: 0L
-                    set(value) { settings.relaySentUpTo = value.toString() }
-                override var taken: Set<String>
-                    get() = settings.relayTaken.split(',').filter { it.isNotBlank() }.toSet()
-                    set(value) { settings.relayTaken = value.joinToString(",") }
-            },
+            // Not in the settings: those go with a backup - see FileCloudMemory.
+            FileCloudMemory(),
         ).also { CloudSync.runner = it }
     }
     DisposableEffect(cloudSync) { onDispose { cloudSync.stop(); CloudSync.runner = null } }

@@ -511,10 +511,6 @@ class Settings(private val store: SettingsStore) {
     /** Whether plays are synced through the cloud (CloudPlaySync) with the devices sharing [playSyncCode]. */
     var playSyncCloud by bool("playSync.cloud", false)
 
-    /** What Cloud relay remembers on this computer - see CloudSyncMemory. */
-    var relayDevice by string("playSync.relayDevice", "")
-    var relaySentUpTo by string("playSync.relaySent", "0")
-    var relayTaken by string("playSync.relayTaken", "")
 
     /**
      * The Stats page's chips, so it opens as it was left rather than on a month by plays every
