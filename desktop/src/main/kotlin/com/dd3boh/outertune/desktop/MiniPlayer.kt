@@ -153,7 +153,7 @@ internal fun PlayerBar(
             .clickable(onClick = onExpand),
     ) {
         LinearProgressIndicator(
-            progress = { if (live && durationMs <= 0) 1f else if (durationMs > 0) positionMs().toFloat() / durationMs else 0f },
+            progress = { if (live) liveBarFraction(positionMs(), durationMs) else if (durationMs > 0) positionMs().toFloat() / durationMs else 0f },
             drawStopIndicator = { },
             modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.BottomCenter),
         )

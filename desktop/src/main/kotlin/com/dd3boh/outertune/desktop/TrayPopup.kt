@@ -579,6 +579,8 @@ private fun TraySeek(
     val seekable = hasSong && durationMs > 0
     val seek by rememberUpdatedState(onSeek)
     val duration by rememberUpdatedState(durationMs)
+    // Read inside the gesture, which outlives a change of song: a live stream maps the bar differently.
+    val isLive by rememberUpdatedState(live)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     // Where the pointer has the playhead while it is held down; null otherwise.
@@ -612,7 +614,7 @@ private fun TraySeek(
                                 }
                                 // Once, on letting go: each seek is a jump in the audio, and one per
                                 // pointer move while dragging would stutter through the song.
-                                dragFraction?.let { seek((it * duration).toLong()) }
+                                dragFraction?.let { seek(if (isLive) liveSeekTarget(it, duration) else (it * duration).toLong()) }
                                 dragFraction = null
                             }
                         }
@@ -624,6 +626,7 @@ private fun TraySeek(
         val fraction = dragFraction ?: when {
             !hasSong -> 0f
             live && durationMs <= 0 -> 1f
+            live -> liveBarFraction(positionMs(), durationMs)
             durationMs > 0 -> (positionMs().toFloat() / durationMs).coerceIn(0f, 1f)
             else -> 0f
         }

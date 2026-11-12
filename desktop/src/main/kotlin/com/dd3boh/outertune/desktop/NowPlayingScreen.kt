@@ -244,6 +244,11 @@ fun NowPlayingScreen(
     /** The analyser drawn behind the equaliser's curve. Null draws the curve alone. */
     eqSpectrum: VisualizerTap? = null,
 ) {
+    // A live bar is drawn on the stretched scale - see liveBarFraction - so its seeks are mapped back
+    // through it. Read through updated state: the bar keeps the first lambda it was handed.
+    val latestSeek by rememberUpdatedState(onSeek)
+    val latestWindow by rememberUpdatedState(durationMs)
+    val liveSeek: (Long) -> Unit = remember { { v -> latestSeek(liveSeekTarget(v.toFloat() / LIVE_BAR_SCALE, latestWindow)) } }
     // Held here rather than inside the drawer: the handle at the top and the button in the actions
     // row both open the same panel, exactly as they do on Android, and two copies of the state would
     // mean each one only knew about its own taps.
@@ -694,13 +699,21 @@ fun NowPlayingScreen(
                                         )
                                     }
                                     SlimSeekBar(
-                                        positionMs = if (live && durationMs <= 0) ({ 1L }) else positionMs,
-                                        durationMs = if (live && durationMs <= 0) 1L else durationMs,
+                                        positionMs = when {
+                                            !live -> positionMs
+                                            durationMs <= 0 -> ({ 1L })
+                                            else -> ({ (liveBarFraction(positionMs(), durationMs) * LIVE_BAR_SCALE).toLong() })
+                                        },
+                                        durationMs = when {
+                                            !live -> durationMs
+                                            durationMs <= 0 -> 1L
+                                            else -> LIVE_BAR_SCALE
+                                        },
                                         seekable = !live || durationMs > 0,
                                         seekBarDot = seekBarDot,
                         weight = seekBarWeight,
                                         colour = onBackground,
-                                        onSeek = onSeek,
+                                        onSeek = if (live) liveSeek else onSeek,
                                         style = seekBarStyle,
                                         playing = playback is PlaybackState.Playing,
                                     )
@@ -891,13 +904,21 @@ fun NowPlayingScreen(
                     // and "how far through the song" is not a setting - colouring it implied the
                     // start of a track was a low value of something and the end a high one.
                     SlimSeekBar(
-                        positionMs = if (live && durationMs <= 0) ({ 1L }) else positionMs,
-                        durationMs = if (live && durationMs <= 0) 1L else durationMs,
+                        positionMs = when {
+                            !live -> positionMs
+                            durationMs <= 0 -> ({ 1L })
+                            else -> ({ (liveBarFraction(positionMs(), durationMs) * LIVE_BAR_SCALE).toLong() })
+                        },
+                        durationMs = when {
+                            !live -> durationMs
+                            durationMs <= 0 -> 1L
+                            else -> LIVE_BAR_SCALE
+                        },
                         seekable = !live || durationMs > 0,
                         seekBarDot = seekBarDot,
                         weight = seekBarWeight,
                         colour = onBackground,
-                        onSeek = onSeek,
+                        onSeek = if (live) liveSeek else onSeek,
                         style = seekBarStyle,
                         playing = playback is PlaybackState.Playing,
                     )
@@ -1113,6 +1134,8 @@ private fun SlimSeekBar(
         while (true) androidx.compose.runtime.withFrameNanos { waveTime = start + (it - began) / 1e9f }
     }
     val currentDuration by androidx.compose.runtime.rememberUpdatedState(durationMs)
+    // The gestures below outlive a change of song, and a live stream's bar maps seeks differently.
+    val currentOnSeek by androidx.compose.runtime.rememberUpdatedState(onSeek)
 
     // The phone's squiggle: the played part waves while the song plays, and flattens out when it
     // is paused or being dragged - a wave under the pointer would make the target hard to read.
@@ -1142,7 +1165,7 @@ private fun SlimSeekBar(
             .pointerInput(seekable) {
                 if (!seekable) return@pointerInput
                 detectTapGestures { offset ->
-                    onSeek((offset.x / size.width).coerceIn(0f, 1f).times(currentDuration).toLong())
+                    currentOnSeek((offset.x / size.width).coerceIn(0f, 1f).times(currentDuration).toLong())
                 }
             }
             .pointerInput(seekable) {
@@ -1150,7 +1173,7 @@ private fun SlimSeekBar(
                 detectHorizontalDragGestures(
                     onDragStart = { offset -> dragFraction = (offset.x / size.width).coerceIn(0f, 1f) },
                     onDragEnd = {
-                        dragFraction?.let { onSeek((it * currentDuration).toLong()) }
+                        dragFraction?.let { currentOnSeek((it * currentDuration).toLong()) }
                         dragFraction = null
                     },
                     onDragCancel = { dragFraction = null },
@@ -1267,6 +1290,27 @@ internal fun LiveClock(positionMs: () -> Long, durationMs: Long, onSeek: ((Long)
  * window's end only moves a segment at a time, so being just behind is the normal state of "now".
  */
 private const val LIVE_EDGE_MS = 15_000L
+
+/**
+ * A live bar's stretched scale: now at the right end, and the distance back from it growing as the
+ * square of the distance along the bar. Near now a small drag moves a few seconds - the rewinds
+ * people mostly want - and the far left still reaches the whole window: halfway is a quarter of it
+ * (15 minutes of an hour), nine tenths of the way along is a hundredth (36 seconds).
+ */
+internal fun liveBarFraction(positionMs: Long, windowMs: Long): Float {
+    if (windowMs <= 0) return 1f
+    val behind = (windowMs - positionMs).coerceIn(0L, windowMs)
+    return (1 - kotlin.math.sqrt(behind.toDouble() / windowMs)).toFloat()
+}
+
+/** The point in the window a place on the live bar stands for - the inverse of [liveBarFraction]. */
+internal fun liveSeekTarget(fraction: Float, windowMs: Long): Long {
+    val back = 1.0 - fraction.coerceIn(0f, 1f)
+    return windowMs - (windowMs * back * back).toLong()
+}
+
+/** The bar's own units for a live stream: its fraction, in millionths. */
+internal const val LIVE_BAR_SCALE = 1_000_000L
 
 @Composable
 private fun PositionLabel(positionMs: () -> Long, colour: Color) {
