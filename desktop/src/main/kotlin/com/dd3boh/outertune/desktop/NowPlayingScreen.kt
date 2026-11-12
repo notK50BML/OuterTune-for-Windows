@@ -1262,12 +1262,15 @@ internal val LIVE_RED = Color(0xFFFF4E45)
 @Composable
 internal fun LiveClock(positionMs: () -> Long, durationMs: Long, onSeek: ((Long) -> Unit)?) {
     val behind = if (durationMs > 0) durationMs - positionMs() else 0L
+    // Taps on the clock stop here. The red LIVE has nothing to do when tapped, and a tap it let
+    // through reached whatever was underneath - the cover, which shows and hides the lyrics.
+    val absorbTaps = Modifier.pointerInput(Unit) { detectTapGestures { } }
     if (behind < LIVE_EDGE_MS) {
-        LiveLabel()
+        Box(modifier = absorbTaps) { LiveLabel() }
         return
     }
     val grey = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = absorbTaps) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = if (onSeek != null) {
@@ -1286,10 +1289,11 @@ internal fun LiveClock(positionMs: () -> Long, durationMs: Long, onSeek: ((Long)
 }
 
 /**
- * How far behind the newest segment still counts as live: a segment is a few seconds, and the
- * window's end only moves a segment at a time, so being just behind is the normal state of "now".
+ * How far behind the live point still reads as live. The bar's end is the live point itself - see
+ * LiveSource - so playing live is 0 behind; this only absorbs the moment between a seek and its
+ * sound. Anything more is shown, so each second paused adds one to the "−0:05".
  */
-private const val LIVE_EDGE_MS = 15_000L
+private const val LIVE_EDGE_MS = 1_500L
 
 /**
  * A live bar's stretched scale: now at the right end, and the distance back from it growing as the
@@ -1300,11 +1304,15 @@ private const val LIVE_EDGE_MS = 15_000L
 internal fun liveBarFraction(positionMs: Long, windowMs: Long): Float {
     if (windowMs <= 0) return 1f
     val behind = (windowMs - positionMs).coerceIn(0L, windowMs)
+    // Full whenever the clock says LIVE: the two never disagree.
+    if (behind < LIVE_EDGE_MS) return 1f
     return (1 - kotlin.math.sqrt(behind.toDouble() / windowMs)).toFloat()
 }
 
 /** The point in the window a place on the live bar stands for - the inverse of [liveBarFraction]. */
 internal fun liveSeekTarget(fraction: Float, windowMs: Long): Long {
+    // The last sliver of the bar is live itself, so letting go at the end is "go live".
+    if (fraction >= 0.995f) return windowMs
     val back = 1.0 - fraction.coerceIn(0f, 1f)
     return windowMs - (windowMs * back * back).toLong()
 }

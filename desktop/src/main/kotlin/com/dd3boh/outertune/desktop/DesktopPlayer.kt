@@ -159,6 +159,12 @@ class DesktopPlayer {
          * segment it no longer has leaves the stream where it was.
          */
         const val LIVE_REWIND_MS = 60 * 60_000L
+
+        /** How many segments behind the newest "live" plays - see LiveSource. */
+        const val LIVE_OFFSET_SEGMENTS = 3
+
+        /** How many segments are fetched ahead of the one playing. */
+        const val LIVE_PREFETCH = 2
         const val AAC_FRAME_SAMPLES = 1024L
 
         /** The same codec at ~48kbps, and at ~256kbps (Premium accounts only). */
@@ -880,19 +886,31 @@ class DesktopPlayer {
         private val decoder: Decoder
         private val buffer = SampleBuffer()
         private var pending: ByteArray?
-        private var upcoming: java.util.concurrent.Future<ByteArray?>? = null
+        /** The segments being fetched ahead, in order: the next, and the one after. */
+        private val upcoming = ArrayDeque<Pair<Long, java.util.concurrent.Future<ByteArray?>>>()
         private var framesDecoded = 0L
         /** The newest segment the stream has said it has, from each answer's headers. */
         @Volatile private var headSeq = 0L
+        /**
+         * Where live played from when the stream was opened, and when: "now" - the end of the bar,
+         * the point live plays at - runs on from there by the clock.
+         */
+        private val anchorSeq: Long
+        private val anchorAt: Long
         /** The oldest segment the window reaches back to: where its clock reads 0. */
         private val baseSeq: Long
         /** One segment's length, measured from the first. */
         private val segmentMs: Long
 
         init {
-            val (head, bytes) = fetchSegment(null) ?: error("the live stream did not answer")
-            seq = head
+            val (head, newest) = fetchSegment(null) ?: error("the live stream did not answer")
             headSeq = maxOf(headSeq, head)
+            // A few segments behind the newest, as every live player plays: the next segment is
+            // only made as this one is heard, so reading at the very edge waited on each one as it
+            // was needed, and any hiccup in the network was a gap in the sound.
+            val (start, bytes) = fetchSegment(head - LIVE_OFFSET_SEGMENTS) ?: (head to newest)
+            seq = start
+            anchorSeq = start
             val iso = IsoFile(InMemoryChannel(bytes))
             decoder = Decoder.create(
                 audioSpecificConfigIn(bytes) ?: findAudioSpecificConfig(iso) ?: error("no AudioSpecificConfig in the live segment")
@@ -908,7 +926,9 @@ class DesktopPlayer {
             pending = first
             segmentMs = (samples.size * AAC_FRAME_SAMPLES * 1000 / buffer.sampleRate.coerceAtLeast(1))
                 .coerceIn(1_000L, 10_000L)
-            baseSeq = (seq - LIVE_REWIND_MS / segmentMs).coerceAtLeast(0)
+            baseSeq = (head - LIVE_REWIND_MS / segmentMs).coerceAtLeast(0)
+            // Last, once the first audio is ready to play: the clock starts with the sound.
+            anchorAt = System.currentTimeMillis()
         }
 
         override val sampleRate = buffer.sampleRate
@@ -917,7 +937,21 @@ class DesktopPlayer {
         override val bigEndian = buffer.isBigEndian
         override val durationMs = 0L
         override val startMs: Long get() = (seq - baseSeq) * segmentMs
-        override val liveWindowMs: Long get() = (headSeq - baseSeq + 1) * segmentMs
+
+        /**
+         * Up to the live point - where live plays, a few segments behind the newest - and moving
+         * with the clock rather than with the segments seen: a paused stream fetches nothing, and
+         * how far behind it is has to keep growing while it waits. So playing live is 0 behind,
+         * and pausing for x seconds is x behind. The newest segment reported still counts if it
+         * is ever ahead of the clock.
+         */
+        override val liveWindowMs: Long get() = maxOf(
+            (headSeq - LIVE_OFFSET_SEGMENTS - baseSeq) * segmentMs,
+            (anchorSeq - baseSeq) * segmentMs + (System.currentTimeMillis() - anchorAt),
+        )
+
+        /** The segment the live point is in - see [liveWindowMs]. */
+        private fun edgeSeq(): Long = (baseSeq + liveWindowMs / segmentMs).coerceIn(baseSeq, maxOf(baseSeq, headSeq))
 
         /** Where in the window playback is: the segment, and the frames into it. */
         private fun here() = (seq - baseSeq) * segmentMs + index * AAC_FRAME_SAMPLES * 1000 / sampleRate.coerceAtLeast(1)
@@ -935,7 +969,8 @@ class DesktopPlayer {
 
         /** On to the next segment: the one fetched ahead, or asked for again a few times. */
         private fun advance(): Boolean {
-            val ahead = runCatching { upcoming?.get() }.getOrNull()
+            val next = upcoming.removeFirstOrNull()
+            val ahead = next?.takeIf { it.first == seq + 1 }?.let { runCatching { it.second.get() }.getOrNull() }
             if (ahead != null) return use(ahead)
             repeat(LIVE_RETRIES) {
                 Thread.sleep(LIVE_RETRY_MS)
@@ -952,9 +987,19 @@ class DesktopPlayer {
             return true
         }
 
+        /** Keeps the next two segments on their way, so one slow answer is not a gap. */
         private fun prefetchNext() {
-            val wanted = seq + 1
-            upcoming = fetcher.submit<ByteArray?> { fetchSegment(wanted)?.second }
+            while (upcoming.isNotEmpty() && upcoming.first().first <= seq) upcoming.removeFirst().second.cancel(true)
+            var wanted = (upcoming.lastOrNull()?.first ?: seq) + 1
+            while (upcoming.size < LIVE_PREFETCH) {
+                val sq = wanted++
+                upcoming.addLast(sq to fetcher.submit<ByteArray?> { fetchSegment(sq)?.second })
+            }
+        }
+
+        private fun cancelPrefetch() {
+            upcoming.forEach { it.second.cancel(true) }
+            upcoming.clear()
         }
 
         /** Segment [sq], or the newest when null, with the number it is. Null when there is none to have. */
@@ -1045,29 +1090,46 @@ class DesktopPlayer {
          * longer keeps, or a failed fetch, leaves playback where it was.
          */
         override fun seek(ms: Long): Long {
-            val target = (baseSeq + ms / segmentMs).coerceIn(baseSeq, headSeq)
+            // No nearer now than live plays from - the end of the bar is "live", not the newest segment.
+            val target = (baseSeq + ms / segmentMs).coerceIn(baseSeq, edgeSeq())
+            // Into the segment as far as asked, not only to its start, so a seek lands where the
+            // clock says it did - a "go live" otherwise read as seconds behind straight away.
+            fun frameFor(segmentSamples: Int): Int {
+                val within = (ms - (target - baseSeq) * segmentMs).coerceAtLeast(0)
+                return (within * sampleRate / 1000 / AAC_FRAME_SAMPLES).toInt().coerceIn(0, (segmentSamples - 1).coerceAtLeast(0))
+            }
             if (target == seq) {
-                index = 0
+                index = frameFor(samples.size)
                 pending = null
                 return here()
             }
-            upcoming?.cancel(true)
+            cancelPrefetch()
             val (_, bytes) = fetchSegment(target) ?: run {
                 prefetchNext()
                 return here()
             }
             seq = target
             samples = runCatching { extractSamples(bytes, IsoFile(InMemoryChannel(bytes))) }.getOrDefault(emptyList())
-            index = 0
+            index = frameFor(samples.size)
             pending = null
             prefetchNext()
             return here()
         }
 
         override fun close() {
-            upcoming?.cancel(true)
+            cancelPrefetch()
             fetcher.shutdownNow()
         }
+    }
+
+    /**
+     * A live stream's window, published when it has moved half a second or more: it runs with the
+     * clock, and handing every change on would redraw the screens for each block of audio.
+     */
+    private fun publishLiveWindow(src: PcmSource) {
+        val window = src.liveWindowMs
+        if (window <= 0) return
+        if (kotlin.math.abs(window - liveWindowMs.value) >= 500) liveWindowMs.value = window
     }
 
     /** Demuxes YouTube's fragmented MP4 into AAC frames and plays them. */
@@ -1122,7 +1184,11 @@ class DesktopPlayer {
             // Held here rather than by the audio line, which does not reliably block a write. A
             // seek is let through, so dragging the bar while paused moves the song there now rather
             // than when it is next played.
-            while (paused && pendingSeekMs == null && currentCoroutineContext().isActive) delay(50)
+            while (paused && pendingSeekMs == null && currentCoroutineContext().isActive) {
+                // A paused live stream falls further behind now, and its clock says so.
+                publishLiveWindow(src)
+                delay(50)
+            }
             if (!currentCoroutineContext().isActive) break
 
             pendingSeekMs?.let { target ->
@@ -1151,7 +1217,7 @@ class DesktopPlayer {
             val pcm = src.next() ?: break
             if (pcm.isEmpty()) continue
             // A live stream's window grows as the broadcast goes on, and its end is "now".
-            src.liveWindowMs.let { if (it != liveWindowMs.value) liveWindowMs.value = it }
+            publishLiveWindow(src)
 
             // Equalised first, so what follows describes the audio that will actually be played -
             // the visualiser in particular measures the signal after this. In place, on the buffer
