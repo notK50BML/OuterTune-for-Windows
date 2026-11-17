@@ -4,8 +4,13 @@ A YouTube Music player for Windows, built to look and work like the
 [OuterTune Android app](https://github.com/notK50BML/OuterTune). It is an independent port: a
 separate project from the original OuterTune, under the same GPL-3.0 licence.
 
-## Features
+### YouTube Music audio playback
 
+- Streamed Opus 140kbps streams
+- Full access to the YouTube Music song library
+- Song artist and album linking to YouTube Music artist pages
+- 
+[The README is kinda WIP rn]
 - Search and play YouTube Music, with albums, artists, playlists and a signed-in home feed
 - Word-by-word lyrics (BetterLyrics, QQ Music, LrcLib, KuGou)
 - Local music files: MP3, FLAC and Ogg Vorbis, with their tags and cover art
