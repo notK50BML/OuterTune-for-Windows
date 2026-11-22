@@ -1,0 +1,1194 @@
+From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 18:05:03 +0800
+Subject: [PATCH 1/2] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+ providers, cleaned search title
+
+Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
+and logging. Desktop: both as lyrics sources with settings, profile keys and manual-search
+candidates; titles are searched with version tags and a leading 'Artist - ' removed.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../com/dd3boh/betterlyrics/BetterLyrics.kt   |  50 ++++--
+ .../com/dd3boh/betterlyrics/LyricsPlus.kt     | 142 +++++++++++++++++
+ .../com/dd3boh/outertune/desktop/Lyrics.kt    |  27 +++-
+ .../outertune/desktop/LyricsProviders.kt      |   8 +-
+ .../dd3boh/outertune/desktop/LyricsTitle.kt   |  82 ++++++++++
+ .../com/dd3boh/outertune/desktop/Profiles.kt  |   4 +
+ .../com/dd3boh/outertune/desktop/Settings.kt  |   6 +
+ .../dd3boh/outertune/desktop/SettingsPane.kt  |   2 +
+ .../outertune/desktop/LyricsProvidersTest.kt  |  11 +-
+ .../src/main/java/com/dd3boh/lrclib/LrcLib.kt |  15 ++
+ .../main/java/com/dd3boh/lrclib/Lyricsfile.kt | 144 ++++++++++++++++++
+ .../java/com/dd3boh/lrclib/models/Track.kt    |   3 +
+ 12 files changed, 474 insertions(+), 20 deletions(-)
+ create mode 100644 betterlyrics/src/main/java/com/dd3boh/betterlyrics/LyricsPlus.kt
+ create mode 100644 desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsTitle.kt
+ create mode 100644 lrclib/src/main/java/com/dd3boh/lrclib/Lyricsfile.kt
+
+diff --git a/betterlyrics/src/main/java/com/dd3boh/betterlyrics/BetterLyrics.kt b/betterlyrics/src/main/java/com/dd3boh/betterlyrics/BetterLyrics.kt
+index 803d169..aa36196 100644
+--- a/betterlyrics/src/main/java/com/dd3boh/betterlyrics/BetterLyrics.kt
++++ b/betterlyrics/src/main/java/com/dd3boh/betterlyrics/BetterLyrics.kt
+@@ -10,6 +10,7 @@ import io.ktor.client.plugins.defaultRequest
+ import io.ktor.client.request.get
+ import io.ktor.client.request.headers
+ import io.ktor.client.request.parameter
++import io.ktor.client.statement.HttpResponse
+ import io.ktor.http.HttpStatusCode
+ import io.ktor.serialization.kotlinx.json.json
+ import kotlinx.serialization.json.Json
+@@ -22,6 +23,40 @@ import java.io.IOException
+  * shared lyrics parse entry point.
+  */
+ object BetterLyrics {
++    /**
++     * Its current home first, then the older host, which InterTune still asks and which has been
++     * seen to answer for songs the new one does not. Whichever answers 200 first is used.
++     */
++    /** Set by the app to receive one line per request saying which host answered (or failed) and how. */
++    @Volatile var log: ((String) -> Unit)? = null
++
++    // The older host first, as InterTune asks it: it answers for uncached songs, where the new one
++    // answers 401 without a key, and each wasted request is time taken from the provider's budget.
++    private val HOSTS = listOf("https://lyrics-api.boidu.dev", "https://api.betterlyrics.org")
++
++    private suspend fun lookup(path: String, title: String, artist: String, duration: Int, album: String?): HttpResponse {
++        var last: HttpResponse? = null
++        var failure: Throwable? = null
++        for (host in HOSTS) {
++            val response = runCatching {
++                client.get("$host$path") {
++                    parameter("s", title)
++                    parameter("a", artist)
++                    if (duration > 0) parameter("d", duration)
++                    if (!album.isNullOrBlank()) parameter("al", album)
++                }
++            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; failure = it }.getOrNull()
++            if (response == null) {
++                log?.invoke("$host$path unreachable: ${failure?.message}")
++                continue
++            }
++            log?.invoke("$host$path -> HTTP ${response.status.value} (\"$title\" - $artist)")
++            if (response.status == HttpStatusCode.OK) return response
++            last = response
++        }
++        return last ?: throw (failure ?: IOException("BetterLyrics unreachable"))
++    }
++
+     private val client by lazy {
+         HttpClient {
+             install(ContentNegotiation) {
+@@ -42,7 +77,6 @@ object BetterLyrics {
+             }
+ 
+             defaultRequest {
+-                url("https://api.betterlyrics.org") // its current home; lyrics-api.boidu.dev was the old one
+                 // The API rejects requests without a browser-shaped User-Agent.
+                 headers {
+                     append("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+@@ -66,12 +100,7 @@ object BetterLyrics {
+         duration: Int,
+         album: String? = null,
+     ): Result<String?> = runCatching {
+-        val response = client.get("/getLyrics") {
+-            parameter("s", title)
+-            parameter("a", artist)
+-            if (duration > 0) parameter("d", duration)
+-            if (!album.isNullOrBlank()) parameter("al", album)
+-        }
++        val response = lookup("/getLyrics", title, artist, duration, album)
+         val ttml = if (response.status == HttpStatusCode.OK) {
+             response.body<TTMLResponse>().ttml?.trim()?.takeIf { it.isNotEmpty() }
+         } else {
+@@ -90,12 +119,7 @@ object BetterLyrics {
+ 
+     /** QQ Music's word-timed lyrics through BetterLyrics, as TTML, or null - see [QrcConverter]. */
+     private suspend fun qqLyrics(title: String, artist: String, duration: Int, album: String?): String? = runCatching {
+-        val response = client.get("/qq/getLyrics") {
+-            parameter("s", title)
+-            parameter("a", artist)
+-            if (duration > 0) parameter("d", duration)
+-            if (!album.isNullOrBlank()) parameter("al", album)
+-        }
++        val response = lookup("/qq/getLyrics", title, artist, duration, album)
+         if (response.status != HttpStatusCode.OK) return@runCatching null
+         response.body<QqResponse>().lyrics?.let { QrcConverter.toTtml(it, title) }
+     }.getOrNull()
+diff --git a/betterlyrics/src/main/java/com/dd3boh/betterlyrics/LyricsPlus.kt b/betterlyrics/src/main/java/com/dd3boh/betterlyrics/LyricsPlus.kt
+new file mode 100644
+index 0000000..339ff43
+--- /dev/null
++++ b/betterlyrics/src/main/java/com/dd3boh/betterlyrics/LyricsPlus.kt
+@@ -0,0 +1,142 @@
++package com.dd3boh.betterlyrics
++
++import io.ktor.client.HttpClient
++import io.ktor.client.engine.okhttp.OkHttp
++import io.ktor.client.plugins.HttpTimeout
++import io.ktor.client.request.get
++import io.ktor.client.request.headers
++import io.ktor.client.request.parameter
++import io.ktor.client.statement.bodyAsText
++import io.ktor.http.HttpStatusCode
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.JsonArray
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.booleanOrNull
++import kotlinx.serialization.json.contentOrNull
++import kotlinx.serialization.json.jsonArray
++import kotlinx.serialization.json.jsonObject
++import kotlinx.serialization.json.jsonPrimitive
++import kotlinx.serialization.json.longOrNull
++import java.io.IOException
++
++/**
++ * LyricsPlus, the backend of the YouLy+ browser extension (https://github.com/ibratabian17/lyricsplus).
++ * `GET /v2/lyrics/get` answers with word-timed lines gathered from Apple Music, Musixmatch, Spotify,
++ * QQ and others, as JSON. It is turned into the same TTML the BetterLyrics and QQ results are, so it
++ * is read and drawn by the one parser, with no code of its own downstream.
++ *
++ * Its shape: `lyrics[]` of lines `{time, duration, text, syllabus[], element{singer}}`, each syllable
++ * `{time, duration, text, isBackground}`, times in milliseconds from the start of the song;
++ * `metadata.agents` names the singers (`v1`, `v2`, ...); `type` is Word, Line or None.
++ */
++object LyricsPlus {
++    /** Set by the app to receive one line per request. */
++    @Volatile var log: ((String) -> Unit)? = null
++
++    /** Tried in order; the first to answer 200 wins. */
++    private val HOSTS = listOf("https://lyricsplus.prjktla.my.id")
++
++    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
++
++    private val client by lazy {
++        HttpClient(OkHttp) {
++            install(HttpTimeout) {
++                requestTimeoutMillis = 20000
++                connectTimeoutMillis = 10000
++                socketTimeoutMillis = 20000
++            }
++            expectSuccess = false
++        }
++    }
++
++    /** TTML for the song, null when the service has none, a failure when it could not be reached. */
++    suspend fun getLyrics(title: String, artist: String, duration: Int, album: String? = null): Result<String?> = runCatching {
++        var failure: Throwable? = null
++        var status: HttpStatusCode? = null
++        for (host in HOSTS) {
++            val response = runCatching {
++                client.get("$host/v2/lyrics/get") {
++                    parameter("title", title)
++                    parameter("artist", artist)
++                    if (!album.isNullOrBlank()) parameter("album", album)
++                    if (duration > 0) parameter("duration", duration)
++                    headers { append("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36") }
++                }
++            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; failure = it }.getOrNull()
++            if (response == null) {
++                log?.invoke("$host unreachable: ${failure?.message}")
++                continue
++            }
++            log?.invoke("$host/v2/lyrics/get -> HTTP ${response.status.value} (\"$title\" - $artist)")
++            status = response.status
++            if (response.status == HttpStatusCode.OK) {
++                return@runCatching toTtml(response.bodyAsText())
++            }
++            if (response.status == HttpStatusCode.NotFound) return@runCatching null
++        }
++        throw failure ?: IOException("LyricsPlus request failed: HTTP ${status?.value}")
++    }
++
++    /** The TTML for a LyricsPlus V2 payload, or null when it holds no lyrics. */
++    internal fun toTtml(body: String): String? {
++        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
++        if (root["type"]?.jsonPrimitive?.contentOrNull.equals("None", ignoreCase = true)) return null
++        val lines = (root["lyrics"] as? JsonArray) ?: return null
++        if (lines.isEmpty()) return null
++
++        val head = StringBuilder()
++        val agents = (root["metadata"] as? JsonObject)?.get("agents") as? JsonObject
++        agents?.forEach { (id, value) ->
++            val type = (value as? JsonObject)?.get("type")?.jsonPrimitive?.contentOrNull
++                ?.takeIf { it == "group" } ?: "person"
++            head.append("<ttm:agent type=\"").append(type).append("\" xml:id=\"").append(attr(id)).append("\"/>")
++        }
++
++        val body = StringBuilder()
++        var written = 0
++        for (element in lines) {
++            val line = element as? JsonObject ?: continue
++            val start = line["time"]?.jsonPrimitive?.longOrNull ?: continue
++            val length = line["duration"]?.jsonPrimitive?.longOrNull ?: 0L
++            val text = line["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
++            val singer = (line["element"] as? JsonObject)?.get("singer")?.jsonPrimitive?.contentOrNull
++            val syllables = (line["syllabus"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
++            if (text.isBlank() && syllables.isEmpty()) continue
++
++            body.append("<p begin=\"").append(seconds(start)).append("\" end=\"").append(seconds(start + length)).append('"')
++            if (singer != null && agents?.containsKey(singer) == true) body.append(" ttm:agent=\"").append(attr(singer)).append('"')
++            body.append('>')
++            if (syllables.isEmpty()) {
++                body.append(escape(text.trim()))
++            } else {
++                var background = false
++                for (s in syllables) {
++                    val word = s["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
++                    val sStart = s["time"]?.jsonPrimitive?.longOrNull ?: start
++                    val sLength = s["duration"]?.jsonPrimitive?.longOrNull ?: 0L
++                    val isBackground = s["isBackground"]?.jsonPrimitive?.booleanOrNull == true
++                    if (isBackground != background) {
++                        body.append(if (isBackground) "<span ttm:role=\"x-bg\">" else "</span>")
++                        background = isBackground
++                    }
++                    if (word.isBlank()) { body.append(' '); continue }
++                    // Spaces ride outside the timed span, as in the other converters.
++                    if (word.first().isWhitespace()) body.append(' ')
++                    body.append("<span begin=\"").append(seconds(sStart)).append("\" end=\"")
++                        .append(seconds(sStart + sLength)).append("\">").append(escape(word.trim())).append("</span>")
++                    if (word.last().isWhitespace()) body.append(' ')
++                }
++                if (background) body.append("</span>")
++            }
++            body.append("</p>")
++            written++
++        }
++        if (written == 0) return null
++        return "<tt xmlns=\"http://www.w3.org/ns/ttml\" xmlns:ttm=\"http://www.w3.org/ns/ttml#metadata\">" +
++            "<head><metadata>$head</metadata></head><body><div>$body</div></body></tt>"
++    }
++
++    private fun seconds(ms: Long) = "%d.%03d".format(ms / 1000, ms % 1000)
++    private fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
++    private fun attr(s: String) = escape(s).replace("\"", "&quot;")
++}
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Lyrics.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Lyrics.kt
+index fe05ca8..64808b0 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Lyrics.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Lyrics.kt
+@@ -9,6 +9,7 @@ package com.dd3boh.outertune.desktop
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.ensureActive
+ import com.dd3boh.betterlyrics.BetterLyrics
++import com.dd3boh.betterlyrics.LyricsPlus
+ import com.dd3boh.betterlyrics.Singer
+ import com.dd3boh.betterlyrics.SingerNames
+ import com.dd3boh.betterlyrics.Singers
+@@ -784,6 +785,10 @@ class LyricsRepository(private val library: LibraryStore) {
+             val seconds = if (durationMs > 0) (durationMs / 1000).toInt() else -1
+             runCatching { LrcLib.getAllLyrics(title, artist, seconds) { onFound(LyricsCandidate(LRCLIB, it)) } }
+             ensureActive()
++            runCatching { LrcLib.getWordSyncedLyrics(title, artist, seconds).getOrNull()?.takeIf { it.isNotBlank() }?.let { onFound(LyricsCandidate(LRCLIB_WORD, it)) } }
++            ensureActive()
++            runCatching { LyricsPlus.getLyrics(title, artist.substringBefore(", "), seconds.coerceAtLeast(0)).getOrNull()?.takeIf { it.isNotBlank() }?.let { onFound(LyricsCandidate(LYRICSPLUS, it)) } }
++            ensureActive()
+             runCatching { KuGou.getAllPossibleLyricsOptions(title, artist, seconds) { onFound(LyricsCandidate(KUGOU, it)) } }
+             ensureActive()
+             runCatching { QQMusic.getAllLyrics(title, artist, seconds) { onFound(LyricsCandidate(QQMUSIC, it)) } }
+@@ -814,9 +819,12 @@ class LyricsRepository(private val library: LibraryStore) {
+         durationSeconds: Int,
+     ): Result<Pair<String, Lyrics>?> =
+         // A local file has no YouTube id to look up - "none", rather than a request that can only fail.
++        // What the services are asked for: "(Official Video)" and a leading "Artist - " are not the song.
++        run {
++        val searchTitle = LyricsTitle.search(title, listOf(artist.substringBefore(", ")))
+         if (source.byVideoId && LocalMusic.isLocal(songId)) Result.success(null) else when (source) {
+             // TTML is not tidied: it is markup, and the cleanup works on lines of text.
+-            LyricsSource.BetterLyrics -> BetterLyrics.getLyrics(title, artist, durationSeconds).mapCatching { ttml ->
++            LyricsSource.BetterLyrics -> BetterLyrics.getLyrics(searchTitle, artist.substringBefore(", "), durationSeconds).mapCatching { ttml ->
+                 ttml?.takeIf { it.isNotBlank() }?.let { readable(it, BETTERLYRICS) }
+             }
+             // Every other provider's text gets the cleanup every source gets on the phone, before it
+@@ -824,15 +832,23 @@ class LyricsRepository(private val library: LibraryStore) {
+             // over and over is not evidence of lyrics.
+             // TTML when QQ had word timings for the song (its QRC, converted), LRC otherwise - only
+             // the LRC is tidied, for the same reason as above.
+-            LyricsSource.QQMusic -> QQMusic.getLyrics(title, artist, durationSeconds).mapCatching { text ->
++            // The service behind the YouLy+ extension, as TTML. Asked with the first artist alone, as InterTune does.
++            LyricsSource.LyricsPlus -> LyricsPlus.getLyrics(searchTitle, artist.substringBefore(", "), durationSeconds).mapCatching { ttml ->
++                ttml?.takeIf { it.isNotBlank() }?.let { readable(it, LYRICSPLUS) }
++            }
++            // LRCLIB's word-timed version, as TTML - separate from its line-timed one so each is ordered on its own.
++            LyricsSource.LrcLibWord -> LrcLib.getWordSyncedLyrics(searchTitle, artist, durationSeconds).mapCatching { ttml ->
++                ttml?.takeIf { it.isNotBlank() }?.let { readable(it, LRCLIB_WORD) }
++            }
++            LyricsSource.QQMusic -> QQMusic.getLyrics(searchTitle, artist, durationSeconds).mapCatching { text ->
+                 text?.takeIf { it.isNotBlank() }?.let {
+                     readable(if (TTMLParser.looksLikeTtml(it)) it else cleanLyrics(it), QQMUSIC)
+                 }
+             }
+-            LyricsSource.LrcLib -> LrcLib.getLyrics(title, artist, durationSeconds).mapCatching { text ->
++            LyricsSource.LrcLib -> LrcLib.getLyrics(searchTitle, artist, durationSeconds).mapCatching { text ->
+                 text?.takeIf { it.isNotBlank() }?.let { readable(cleanLyrics(it), LRCLIB) }
+             }
+-            LyricsSource.KuGou -> KuGou.getLyrics(title, artist, durationSeconds).mapCatching { text ->
++            LyricsSource.KuGou -> KuGou.getLyrics(searchTitle, artist, durationSeconds).mapCatching { text ->
+                 text?.takeIf { it.isNotBlank() }?.let { readable(cleanLyrics(it), KUGOU) }
+             }
+             LyricsSource.YouTubeMusic -> youTubeLyrics(songId).mapCatching { text ->
+@@ -843,6 +859,7 @@ class LyricsRepository(private val library: LibraryStore) {
+                 transcript?.let { captionLyrics(it) }
+             }
+         }
++        }
+ 
+     /**
+      * [fetchFrom], given [timeoutMs] to answer. Running out is a failure rather than "none", so a
+@@ -930,6 +947,8 @@ class LyricsRepository(private val library: LibraryStore) {
+         const val BETTERLYRICS = "BetterLyrics"
+         const val QQMUSIC = "QQ Music"
+         const val LRCLIB = "LRCLIB"
++        const val LRCLIB_WORD = "LRCLIB (word-synced)"
++        const val LYRICSPLUS = "YouLy+"
+         const val KUGOU = "KuGou"
+         const val YOUTUBE = "YouTube Music"
+         const val YOUTUBE_SUBTITLE = "YouTube Subtitle"
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsProviders.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsProviders.kt
+index 3a3b6a2..eef4467 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsProviders.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsProviders.kt
+@@ -47,6 +47,8 @@ enum class LyricsSource(
+ ) {
+     BetterLyrics(LyricsRepository.BETTERLYRICS, "BetterLyrics", "Times each word; often refuses songs it has not cached"),
+     QQMusic(LyricsRepository.QQMUSIC, "QQ Music", "Times each word; strong for Chinese and K-pop, many English songs too"),
++    LyricsPlus(LyricsRepository.LYRICSPLUS, "YouLy+ (LyricsPlus)", "Times each word, with second voices and background vocals; gathers several services"),
++    LrcLibWord(LyricsRepository.LRCLIB_WORD, "LRCLIB (word-synced)", "LRCLIB's word-timed lyrics, where its library has them"),
+     LrcLib(LyricsRepository.LRCLIB, "LRCLIB", "Line-timed lyrics, from a large open library"),
+     KuGou(LyricsRepository.KUGOU, "KuGou", "Strongest for Chinese-language songs"),
+     YouTubeMusic(LyricsRepository.YOUTUBE, "YouTube Music", "YouTube Music's own lyrics; not timed", byVideoId = true),
+@@ -65,7 +67,7 @@ enum class LyricsSource(
+          * BetterLyrics and then QQ Music; then LRCLIB, then KuGou, then YouTube Music's own lyrics and
+          * last its captions, as the phone has them.
+          */
+-        val DEFAULT = listOf(BetterLyrics, QQMusic, LrcLib, KuGou, YouTubeMusic, YouTubeSubtitle)
++        val DEFAULT = listOf(BetterLyrics, QQMusic, LyricsPlus, LrcLibWord, LrcLib, KuGou, YouTubeMusic, YouTubeSubtitle)
+ 
+         /** The stored order, with any provider it does not mention appended in the default order. */
+         fun ordered(stored: String): List<LyricsSource> {
+@@ -88,6 +90,8 @@ enum class LyricsFetchMode(val label: String, val description: String) {
+ fun Settings.isEnabled(source: LyricsSource): Boolean = when (source) {
+     LyricsSource.BetterLyrics -> wordByWordLyrics
+     LyricsSource.QQMusic -> lyricsQqMusic
++    LyricsSource.LyricsPlus -> lyricsLyricsPlus
++    LyricsSource.LrcLibWord -> lyricsLrclibWord
+     LyricsSource.LrcLib -> lyricsLrclib
+     LyricsSource.KuGou -> lyricsKugou
+     LyricsSource.YouTubeMusic -> lyricsYouTube
+@@ -97,6 +101,8 @@ fun Settings.isEnabled(source: LyricsSource): Boolean = when (source) {
+ fun Settings.setEnabled(source: LyricsSource, on: Boolean) = when (source) {
+     LyricsSource.BetterLyrics -> wordByWordLyrics = on
+     LyricsSource.QQMusic -> lyricsQqMusic = on
++    LyricsSource.LyricsPlus -> lyricsLyricsPlus = on
++    LyricsSource.LrcLibWord -> lyricsLrclibWord = on
+     LyricsSource.LrcLib -> lyricsLrclib = on
+     LyricsSource.KuGou -> lyricsKugou = on
+     LyricsSource.YouTubeMusic -> lyricsYouTube = on
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsTitle.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsTitle.kt
+new file mode 100644
+index 0000000..2b632b9
+--- /dev/null
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LyricsTitle.kt
+@@ -0,0 +1,82 @@
++/*
++ * Copyright (C) 2026 OuterTune Project
++ *
++ * SPDX-License-Identifier: GPL-3.0
++ *
++ * Title cleaning taken from InterTune's LyricsMatch: what the lyrics services are asked for.
++ */
++
++package com.dd3boh.outertune.desktop
++
++/**
++ * The title a lyrics service is searched with: version tags such as "(Video Edit)" or "(Official
++ * Video)" taken off, and a leading "Artist - " dropped, as video titles often have. A service that
++ * keys its lookup on the exact title finds nothing for the untidy one.
++ */
++object LyricsTitle {
++    private val BRACKET = Regex("""\s*[(\[{（【]([^()\[\]{}（）【】]*)[)\]}）】]""")
++    private val DASH_SUFFIX = Regex("""\s+[-\u2013\u2014]\s+([^-\u2013\u2014]+)$""")
++    private val SPACES = Regex("""\s+""")
++    // "feat. Someone" only as far as a bracket or a dash suffix. Taking the rest of the title with it
++    // turned "Song feat. X (Live)" into "Song", which then matched the studio recording.
++    private val FEAT_TAIL = Regex(
++        """\s+(?:feat\.?|ft\.|featuring)\s+[^(\[{\uff08\u3010]*?(?=\s*[(\[{\uff08\u3010]|\s+[-\u2013\u2014]\s|$)""",
++        RegexOption.IGNORE_CASE
++    )
++
++    /**
++     * Bracket or dash-suffix contents that describe the upload or the edit rather than the song:
++     * "Video Edit", "Radio Edit", "7" Edit", "Official Music Video", "Lyrics", "Remastered 2011",
++     * "feat. Someone". Checked against the whole contents, so "(It Goes Like)" stays.
++     */
++    private val VERSION_TAG = Regex(
++        "^(?:" +
++            "(?:official\\s+)?(?:(?:hd|hq|4k)\\s+)?(?:(?:music|lyrics?)\\s+)?(?:video|audio|visuali[sz]er|videoclip|clip)" +
++            "(?:\\s+(?:officiel(?:le)?|oficial|ufficiale))?(?:\\s+(?:hd|hq|4k))?" +
++            "|official|lyrics?|with\\s+lyrics|letra|paroles|hd|hq|4k|mono|stereo|explicit|clean|edit" +
++            "|(?:\\d{4}\\s+)?(?:digital(?:ly)?\\s+)?remaster(?:ed)?(?:\\s+version)?(?:\\s+\\d{4})?" +
++            "|remasterizad[oa]|remasteris[ée]e?|rimasterizzat[oa]" +
++            "|(?:radio|video|single|album|clean|explicit|short|original|7\\s*(?:\"|'|_|in|inch)?)\\s+(?:edit|version|mix|cut)" +
++            "|(?:feat\\.?|ft\\.?|featuring|with)\\s+.+" +
++            ")$",
++        RegexOption.IGNORE_CASE
++    )
++
++    /** What to search a service for: [title] cleaned, and without a leading "Artist - ". */
++    fun search(title: String, artists: List<String>): String = cleanTitle(dropArtistPrefix(title, artists))
++
++    /** Takes version tags off a title, leaving any bracket that is part of the name. */
++    fun cleanTitle(title: String): String {
++        var t = title.trim()
++        while (true) {
++            val before = t
++            t = BRACKET.replace(t) { m -> if (isVersionTag(m.groupValues[1])) "" else m.value }
++            DASH_SUFFIX.find(t)?.let { m -> if (isVersionTag(m.groupValues[1])) t = t.substring(0, m.range.first) }
++            t = FEAT_TAIL.replace(t, "").trim().replace(SPACES, " ")
++            if (t == before) break
++        }
++        // A title that is nothing but a tag is still the title.
++        return t.ifBlank { title.trim() }
++    }
++
++    /** Drops "Artist - " from the front of a title when it names one of the song's artists. */
++    fun dropArtistPrefix(title: String, artists: List<String>): String {
++        val names = (artists + artists.joinToString(" & ") + artists.joinToString(", ") + artists.joinToString(" x "))
++            .filter { it.isNotBlank() }
++            .distinct()
++            .sortedByDescending { it.length }
++        for (name in names) {
++            val m = Regex("^\\s*${Regex.escape(name)}\\s+[-\\u2013\\u2014]\\s+", RegexOption.IGNORE_CASE).find(title) ?: continue
++            val rest = title.substring(m.range.last + 1)
++            if (rest.isNotBlank()) return rest
++        }
++        return title
++    }
++
++    private fun isVersionTag(contents: String): Boolean {
++        val t = contents.trim()
++            .replace("’’", "\"").replace("''", "\"")
++            .replace('″', '"').replace('“', '"').replace('”', '"').replace('’', '\'')
++        return t.isNotEmpty() && VERSION_TAG.matches(t)
++    }
++}
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt
+index ab84819..3628189 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt
+@@ -185,6 +185,8 @@ object Profiles {
+                 // the library rather than the settings, so a profile has none to carry.
+                 put("openOnCoverClick", s.lyricsOnCoverClick)
+                 put("lrclib", s.lyricsLrclib)
++                put("lrclibword", s.lyricsLrclibWord)
++                put("lyricsplus", s.lyricsLyricsPlus)
+                 put("kugou", s.lyricsKugou)
+                 put("qqmusic", s.lyricsQqMusic)
+             }
+@@ -262,6 +264,8 @@ object Profiles {
+                 // single offset left to apply it to.
+                 bool("openOnCoverClick") { s.lyricsOnCoverClick = it }
+                 bool("lrclib") { s.lyricsLrclib = it }
++                bool("lrclibword") { s.lyricsLrclibWord = it }
++                bool("lyricsplus") { s.lyricsLyricsPlus = it }
+                 bool("kugou") { s.lyricsKugou = it }
+                 bool("qqmusic") { s.lyricsQqMusic = it }
+             }
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+index 3b460c4..28bec89 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+@@ -191,6 +191,12 @@ class Settings(private val store: SettingsStore) {
+     // ---- Lyrics providers ------------------------------------------------------------------------
+ 
+     var lyricsLrclib by bool("lyrics.lrclib", true)
++
++    /** LRCLIB's word-timed lyrics (its Lyricsfile), kept apart from its line-timed ones so each can be ordered. */
++    var lyricsLrclibWord by bool("lyrics.lrclibword", true)
++
++    /** LyricsPlus, the service behind the YouLy+ extension: word-timed lyrics gathered from several services. */
++    var lyricsLyricsPlus by bool("lyrics.lyricsplus", true)
+     var lyricsKugou by bool("lyrics.kugou", true)
+ 
+     /** QQ Music, asked directly for its word-timed lyrics - on, as on the phone. */
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+index be29e95..ca78f91 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+@@ -170,6 +170,8 @@ internal val SETTING_ENTRIES = listOf(
+     SettingEntry("Provider selection", SettingsCategory.Lyrics, "provider automatic order priority lrclib kugou betterlyrics qq music youtube music subtitle captions source"),
+     SettingEntry("BetterLyrics", SettingsCategory.Lyrics, "word by word karaoke syllable provider"),
+     SettingEntry("LRCLIB", SettingsCategory.Lyrics, "lyrics provider lrclib"),
++    SettingEntry("LRCLIB (word-synced)", SettingsCategory.Lyrics, "lyrics provider lrclib word synced lyricsfile"),
++    SettingEntry("YouLy+ (LyricsPlus)", SettingsCategory.Lyrics, "lyrics provider youly lyricsplus word synced"),
+     SettingEntry("KuGou", SettingsCategory.Lyrics, "lyrics provider kugou"),
+     SettingEntry("QQ Music", SettingsCategory.Lyrics, "lyrics provider qq tencent chinese"),
+     SettingEntry("Refetch all lyrics", SettingsCategory.Lyrics, "cache clear refresh refetch provider order again"),
+diff --git a/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/LyricsProvidersTest.kt b/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/LyricsProvidersTest.kt
+index 4ff6dfc..2e6dec2 100644
+--- a/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/LyricsProvidersTest.kt
++++ b/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/LyricsProvidersTest.kt
+@@ -27,6 +27,8 @@ class LyricsProvidersTest {
+             listOf(
+                 LyricsSource.BetterLyrics,
+                 LyricsSource.QQMusic,
++                LyricsSource.LyricsPlus,
++                LyricsSource.LrcLibWord,
+                 LyricsSource.LrcLib,
+                 LyricsSource.KuGou,
+                 LyricsSource.YouTubeMusic,
+@@ -45,6 +47,8 @@ class LyricsProvidersTest {
+                 LyricsSource.LrcLib,
+                 LyricsSource.BetterLyrics,
+                 LyricsSource.QQMusic,
++                LyricsSource.LyricsPlus,
++                LyricsSource.LrcLibWord,
+                 LyricsSource.YouTubeMusic,
+                 LyricsSource.YouTubeSubtitle,
+             ),
+@@ -64,7 +68,10 @@ class LyricsProvidersTest {
+         val order = LyricsSource.ordered("YouTube Subtitle,KuGou")
+         val enabled = all - LyricsSource.LrcLib
+         assertEquals(
+-            listOf(LyricsSource.YouTubeSubtitle, LyricsSource.KuGou, LyricsSource.BetterLyrics, LyricsSource.QQMusic, LyricsSource.YouTubeMusic),
++            listOf(
++                LyricsSource.YouTubeSubtitle, LyricsSource.KuGou, LyricsSource.BetterLyrics, LyricsSource.QQMusic,
++                LyricsSource.LyricsPlus, LyricsSource.LrcLibWord, LyricsSource.YouTubeMusic,
++            ),
+             LyricsRepository.askable(order, enabled, "dQw4w9WgXcQ"),
+         )
+     }
+@@ -72,7 +79,7 @@ class LyricsProvidersTest {
+     @Test
+     fun `a file on this computer is not asked of the providers that need a YouTube id`() {
+         assertEquals(
+-            listOf(LyricsSource.BetterLyrics, LyricsSource.QQMusic, LyricsSource.LrcLib, LyricsSource.KuGou),
++            listOf(LyricsSource.BetterLyrics, LyricsSource.QQMusic, LyricsSource.LyricsPlus, LyricsSource.LrcLibWord, LyricsSource.LrcLib, LyricsSource.KuGou),
+             LyricsRepository.askable(LyricsSource.DEFAULT, all, "local:0123456789abcdef0123"),
+         )
+     }
+diff --git a/lrclib/src/main/java/com/dd3boh/lrclib/LrcLib.kt b/lrclib/src/main/java/com/dd3boh/lrclib/LrcLib.kt
+index 938c7cb..aff13a2 100644
+--- a/lrclib/src/main/java/com/dd3boh/lrclib/LrcLib.kt
++++ b/lrclib/src/main/java/com/dd3boh/lrclib/LrcLib.kt
+@@ -61,6 +61,21 @@ object LrcLib {
+         syncedTracks.bestMatchingFor(duration)?.syncedLyrics?.let(LrcLib::Lyrics)?.text
+     }
+ 
++    /**
++     * LRCLIB's word-synced lyrics as TTML - see [Lyricsfile]: success with null when none of the
++     * listed versions of about this length has any, a failure when the request itself failed.
++     */
++    suspend fun getWordSyncedLyrics(
++        title: String,
++        artist: String,
++        duration: Int,
++        album: String? = null,
++    ): Result<String?> = runCatching {
++        queryLyrics(artist, title, album)
++            .filter { it.lyricsfile != null && (duration == -1 || abs(it.duration - duration) <= 3) }
++            .firstNotNullOfOrNull { it.lyricsfile?.let(Lyricsfile::toTtml) }
++    }
++
+     suspend fun getAllLyrics(
+         title: String,
+         artist: String,
+diff --git a/lrclib/src/main/java/com/dd3boh/lrclib/Lyricsfile.kt b/lrclib/src/main/java/com/dd3boh/lrclib/Lyricsfile.kt
+new file mode 100644
+index 0000000..2bd2177
+--- /dev/null
++++ b/lrclib/src/main/java/com/dd3boh/lrclib/Lyricsfile.kt
+@@ -0,0 +1,144 @@
++package com.dd3boh.lrclib
++
++/**
++ * LRCLIB's word-synced lyrics: the `lyricsfile` field of its search and get answers, a YAML document
++ * in the Lyricsfile 1.0 format (https://github.com/tranxuanthang/lyricsfile) - `lines`, each with
++ * `text`, `start_ms`, an optional `end_ms` and an optional `words` list of the same.
++ *
++ * Turned into the TTML the other word-synced providers give, so one parser draws all of them. Only
++ * what the format's `lines` section uses is read - mappings, lists, and plain, single or double
++ * quoted strings and integers - so no YAML library is needed. Anything unexpected gives null and the
++ * caller falls back to the line-synced lyrics.
++ */
++object Lyricsfile {
++    private class Word(var text: String = "", var start: Long = -1, var end: Long = -1)
++    private class Line(var text: String = "", var start: Long = -1, var end: Long = -1, val words: MutableList<Word> = mutableListOf())
++
++    private val ITEM = Regex("""^(\s*)-\s+([A-Za-z_]+):(?:\s+(.*))?$""")
++    private val KEY = Regex("""^(\s+)([A-Za-z_]+):(?:\s+(.*))?$""")
++
++    /** The TTML for [yaml], or null when it holds no word timings. */
++    fun toTtml(yaml: String): String? = runCatching { parse(yaml)?.let(::ttml) }.getOrNull()
++
++    private fun parse(yaml: String): List<Line>? {
++        val rows = yaml.lines()
++        val start = rows.indexOfFirst { it.trimEnd() == "lines:" }
++        if (start < 0) return null
++        val lines = mutableListOf<Line>()
++        var lineIndent = -1
++        var line: Line? = null
++        var word: Word? = null
++        for (i in start + 1 until rows.size) {
++            val row = rows[i]
++            if (row.isBlank()) continue
++            if (!row[0].isWhitespace() && !row.startsWith("-")) break // the next top level key
++            val item = ITEM.find(row)
++            if (item != null) {
++                val indent = item.groupValues[1].length
++                if (lineIndent < 0 || indent <= lineIndent) {
++                    lineIndent = indent
++                    line = Line().also { lines += it }
++                    word = null
++                    assign(line, null, item.groupValues[2], item.groupValues[3])
++                } else {
++                    val l = line ?: return null
++                    word = Word().also { l.words += it }
++                    assign(null, word, item.groupValues[2], item.groupValues[3])
++                }
++                continue
++            }
++            val key = KEY.find(row) ?: continue
++            val indent = key.groupValues[1].length
++            if (indent <= lineIndent + 2 && !(word != null && indent > lineIndent + 2)) {
++                assign(line, null, key.groupValues[2], key.groupValues[3])
++            } else {
++                assign(null, word, key.groupValues[2], key.groupValues[3])
++            }
++        }
++        return lines.takeIf { l -> l.isNotEmpty() && l.any { it.words.isNotEmpty() } }
++    }
++
++    private fun assign(line: Line?, word: Word?, key: String, raw: String) {
++        when (key) {
++            "text" -> (scalar(raw))?.let { line?.text = it; word?.text = it }
++            "start_ms" -> scalar(raw)?.toLongOrNull()?.let { line?.start = it; word?.start = it }
++            "end_ms" -> scalar(raw)?.toLongOrNull()?.let { line?.end = it; word?.end = it }
++        }
++    }
++
++    private fun scalar(raw: String): String? {
++        val s = raw.trim()
++        if (s.isEmpty()) return ""
++        return when (s[0]) {
++            '\'' -> {
++                val out = StringBuilder()
++                var i = 1
++                while (i < s.length) {
++                    if (s[i] == '\'') {
++                        if (i + 1 < s.length && s[i + 1] == '\'') { out.append('\''); i += 2; continue }
++                        return out.toString()
++                    }
++                    out.append(s[i++])
++                }
++                null // runs over to another row: not read
++            }
++            '"' -> {
++                val out = StringBuilder()
++                var i = 1
++                while (i < s.length) {
++                    val c = s[i]
++                    when {
++                        c == '"' -> return out.toString()
++                        c == '\\' && i + 1 < s.length -> {
++                            when (val e = s[i + 1]) {
++                                'n' -> out.append('\n')
++                                't' -> out.append('\t')
++                                'u' -> if (i + 5 < s.length) { out.append(s.substring(i + 2, i + 6).toInt(16).toChar()); i += 4 }
++                                else -> out.append(e)
++                            }
++                            i += 2
++                        }
++                        else -> { out.append(c); i++ }
++                    }
++                }
++                null
++            }
++            else -> s.substringBefore(" #").trim()
++        }
++    }
++
++    private fun ttml(lines: List<Line>): String? {
++        val body = StringBuilder()
++        var written = 0
++        lines.forEachIndexed { index, line ->
++            if (line.start < 0) return@forEachIndexed
++            val words = line.words.filter { it.start >= 0 }
++            val lineEnd = when {
++                line.end >= 0 -> line.end
++                words.lastOrNull()?.end?.let { it >= 0 } == true -> words.last().end
++                else -> lines.getOrNull(index + 1)?.start?.takeIf { it > line.start } ?: (line.start + 3000)
++            }
++            if (line.text.isBlank() && words.isEmpty()) return@forEachIndexed
++            body.append("<p begin=\"").append(seconds(line.start)).append("\" end=\"").append(seconds(lineEnd)).append("\">")
++            if (words.isEmpty()) {
++                body.append(escape(line.text.trim()))
++            } else {
++                words.forEachIndexed { w, word ->
++                    val end = if (word.end >= 0) word.end else words.getOrNull(w + 1)?.start ?: lineEnd
++                    if (word.text.isBlank()) { body.append(' '); return@forEachIndexed }
++                    if (word.text.first().isWhitespace()) body.append(' ')
++                    body.append("<span begin=\"").append(seconds(word.start)).append("\" end=\"")
++                        .append(seconds(maxOf(end, word.start))).append("\">").append(escape(word.text.trim())).append("</span>")
++                    if (word.text.last().isWhitespace()) body.append(' ')
++                }
++            }
++            body.append("</p>")
++            written++
++        }
++        if (written == 0) return null
++        return "<tt xmlns=\"http://www.w3.org/ns/ttml\"><body><div>$body</div></body></tt>"
++    }
++
++    private fun seconds(ms: Long) = "%d.%03d".format(ms / 1000, ms % 1000)
++    private fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
++}
+diff --git a/lrclib/src/main/java/com/dd3boh/lrclib/models/Track.kt b/lrclib/src/main/java/com/dd3boh/lrclib/models/Track.kt
+index 35e4ca2..2ab36fe 100644
+--- a/lrclib/src/main/java/com/dd3boh/lrclib/models/Track.kt
++++ b/lrclib/src/main/java/com/dd3boh/lrclib/models/Track.kt
+@@ -11,6 +11,9 @@ data class Track(
+     val duration: Double,
+     val plainLyrics: String?,
+     val syncedLyrics: String?,
++    /** LRCLIB's word-synced Lyricsfile (YAML), when it has one - see [com.dd3boh.lrclib.Lyricsfile]. */
++    val hasWordSync: Boolean = false,
++    val lyricsfile: String? = null,
+ )
+ 
+ internal fun List<Track>.bestMatchingFor(duration: Int) =
+-- 
+2.43.0
+
+
+From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 18:06:25 +0800
+Subject: [PATCH 2/2] Cloud playlists: make a playlist on the YouTube Music
+ account, kept in step from here
+
+A playlist can be made on the account from the New playlist and Add to playlist dialogs
+(signed in with read-write sync). Adds, removes, renames and deletes are sent to it in the
+background; failures are shown. The account's own copy is not listed a second time.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../com/dd3boh/outertune/desktop/Database.kt  | 40 +++++++++++-
+ .../dd3boh/outertune/desktop/LibraryStore.kt  | 49 +++++++++++++++
+ .../com/dd3boh/outertune/desktop/Main.kt      | 45 +++++++++++---
+ .../dd3boh/outertune/desktop/PlaylistsPane.kt | 62 ++++++++++++++-----
+ .../dd3boh/outertune/desktop/DatabaseTest.kt  | 10 +++
+ 5 files changed, 182 insertions(+), 24 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Database.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Database.kt
+index ab719db..b847366 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Database.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Database.kt
+@@ -403,6 +403,21 @@ class Database(file: File) {
+                     )
+                 }
+             }
++            if (current < 18) {
++                connection.createStatement().use { st ->
++                    // A playlist kept on the account as well - the id YouTube gave it. Beside the
++                    // playlist rather than a column on it, so the playlist table and the queries
++                    // that read it are as they were; a playlist with no row here is local only.
++                    st.executeUpdate(
++                        """
++                        CREATE TABLE IF NOT EXISTS playlist_cloud (
++                            playlistId TEXT PRIMARY KEY NOT NULL REFERENCES playlist(id) ON DELETE CASCADE,
++                            remoteId   TEXT NOT NULL
++                        )
++                        """.trimIndent()
++                    )
++                }
++            }
+             connection.createStatement().use { it.executeUpdate("PRAGMA user_version=$SCHEMA_VERSION") }
+             connection.commit()
+         } catch (e: Exception) {
+@@ -1290,6 +1305,22 @@ class Database(file: File) {
+         }
+     }
+ 
++    /** Records that [playlistId] is also [remoteId] on the account. */
++    fun setPlaylistRemote(playlistId: String, remoteId: String) = synchronized(lock) {
++        connection.prepareStatement("INSERT OR REPLACE INTO playlist_cloud (playlistId, remoteId) VALUES (?, ?)").use { st ->
++            st.setString(1, playlistId)
++            st.setString(2, remoteId)
++            st.executeUpdate()
++        }
++    }
++
++    fun playlistRemoteId(playlistId: String): String? = synchronized(lock) {
++        connection.prepareStatement("SELECT remoteId FROM playlist_cloud WHERE playlistId = ?").use { st ->
++            st.setString(1, playlistId)
++            st.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
++        }
++    }
++
+     fun renamePlaylist(id: String, name: String) = synchronized(lock) {
+         connection.prepareStatement("UPDATE playlist SET name = ? WHERE id = ?").use { st ->
+             st.setString(1, name)
+@@ -1310,14 +1341,15 @@ class Database(file: File) {
+         connection.createStatement().use { st ->
+             st.executeQuery(
+                 """
+-                SELECT p.id, p.name, COUNT(ps.songId) AS songCount
++                SELECT p.id, p.name, COUNT(ps.songId) AS songCount, pc.remoteId
+                 FROM playlist p LEFT JOIN playlist_song ps ON ps.playlistId = p.id
++                LEFT JOIN playlist_cloud pc ON pc.playlistId = p.id
+                 GROUP BY p.id ORDER BY p.createdAt DESC
+                 """.trimIndent()
+             ).use { rs ->
+                 buildList {
+                     while (rs.next()) {
+-                        add(StoredPlaylist(rs.getString(1), rs.getString(2), rs.getInt(3)))
++                        add(StoredPlaylist(rs.getString(1), rs.getString(2), rs.getInt(3), rs.getString(4)))
+                     }
+                 }
+             }
+@@ -1792,7 +1824,7 @@ class Database(file: File) {
+ 
+     companion object {
+         /** Bumped whenever [migrate] gains a step. */
+-        const val SCHEMA_VERSION = 17
++        const val SCHEMA_VERSION = 18
+ 
+         /** How many artist page headers [putArtistPage] keeps - see PageCache. */
+         private const val ARTIST_PAGES_KEPT = 400
+@@ -1806,6 +1838,8 @@ data class StoredPlaylist(
+     val id: String,
+     val name: String,
+     val songCount: Int,
++    /** The playlist's id on the account, when it is kept there too; null for a local-only one. */
++    val remoteId: String? = null,
+ )
+ 
+ /** What [Database.playTotals] reports. Listening time counts each play as the song's full length. */
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LibraryStore.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LibraryStore.kt
+index 158518f..50fe340 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LibraryStore.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/LibraryStore.kt
+@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.debounce
+ import kotlinx.coroutines.flow.MutableSharedFlow
+ import kotlinx.coroutines.FlowPreview
+ import kotlinx.coroutines.cancel
++import kotlinx.coroutines.withContext
++import com.zionhuang.innertube.YouTube
++import com.zionhuang.innertube.utils.completed
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.SupervisorJob
+@@ -255,19 +258,59 @@ class LibraryStore(
+         return id
+     }
+ 
++    /**
++     * A new playlist that is kept on the YouTube Music account as well - the phone's "Sync playlist"
++     * switch. Made on the account first: with no id from YouTube there is nothing to keep, and a
++     * failure (signed out, offline) is the caller's to show, with no half-made playlist left here.
++     */
++    suspend fun createCloudPlaylist(name: String): Result<String> = runCatching {
++        val remote = withContext(Dispatchers.IO) { YouTube.createPlaylist(name) }
++        check(remote.isNotBlank()) { "YouTube did not return a playlist id" }
++        val id = createPlaylist(name)
++        db.setPlaylistRemote(id, remote)
++        playlists.value = db.playlists()
++        id
++    }
++
++    /**
++     * What a change to a playlist kept on the account sends there, in the background. A failure is
++     * written to [cloudProblem] and leaves the local change in place: the two can differ until the
++     * next change goes through, and nothing here is worth losing a local edit over.
++     */
++    private fun mirror(playlistId: String, what: String, push: suspend (remote: String) -> Unit) {
++        val remote = db.playlistRemoteId(playlistId) ?: return
++        cloudScope.launch {
++            runCatching { push(remote) }.onFailure { cloudProblem.value = "Could not $what on YouTube Music: ${it.message ?: it::class.simpleName}" }
++        }
++    }
++
++    private val cloudScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++
++    /** The last failure of a change sent to a cloud playlist, or null. Cleared by whoever shows it. */
++    val cloudProblem = MutableStateFlow<String?>(null)
++
+     fun renamePlaylist(id: String, name: String) {
+         db.renamePlaylist(id, name)
+         playlists.value = db.playlists()
++        mirror(id, "rename the playlist") { YouTube.renamePlaylist(it, name).getOrThrow() }
+     }
+ 
+     fun deletePlaylist(id: String) {
++        // Read before the row goes: the link to the account goes with it.
++        val remote = db.playlistRemoteId(id)
+         db.deletePlaylist(id)
+         playlists.value = db.playlists()
++        if (remote != null) cloudScope.launch {
++            runCatching { YouTube.deletePlaylist(remote).getOrThrow() }
++                .onFailure { cloudProblem.value = "Could not delete the playlist on YouTube Music: ${it.message ?: it::class.simpleName}" }
++        }
+     }
+ 
+     fun addToPlaylist(playlistId: String, song: StoredSong) {
+         db.addToPlaylist(playlistId, song)
+         playlists.value = db.playlists()
++        // A file on this computer has no YouTube id to add.
++        if (!LocalMusic.isLocal(song.id)) mirror(playlistId, "add the song") { YouTube.addToPlaylist(it, song.id).getOrThrow() }
+     }
+ 
+     fun playlistIdsContaining(songId: String): Set<String> = db.playlistIdsContaining(songId)
+@@ -275,6 +318,12 @@ class LibraryStore(
+     fun removeFromPlaylist(playlistId: String, songId: String) {
+         db.removeFromPlaylist(playlistId, songId)
+         playlists.value = db.playlists()
++        if (!LocalMusic.isLocal(songId)) mirror(playlistId, "remove the song") { remote ->
++            // Removing names the entry in the playlist, not the song: its id comes from the playlist's own page.
++            val entry = YouTube.playlist(remote).completed().getOrThrow().songs.firstOrNull { it.id == songId }
++            val setVideoId = entry?.setVideoId ?: return@mirror
++            YouTube.removeFromPlaylist(remote, songId, setVideoId).getOrThrow()
++        }
+     }
+ 
+     /**
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+index ac2a227..52aaf60 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+@@ -473,11 +473,17 @@ internal fun App(
+         }
+     }
+     val playlistsSavedHere by library.savedPlaylists.collectAsState()
++    val myPlaylists by library.playlists.collectAsState()
++    val canSyncPlaylists = accountState is AccountState.SignedIn && settings.syncMode == SyncMode.ReadWrite
+     val albumsSavedHere by library.savedAlbums.collectAsState()
+     val accountAlbums by youTubeSync.albums.collectAsState()
+     // The account's playlists with those saved here, each once - what every "your playlists" shows.
+-    val savedPlaylists = remember(playlistsSavedHere, accountPlaylists) {
++    val savedPlaylists = remember(playlistsSavedHere, accountPlaylists, myPlaylists) {
++        // Not the ones made here and kept on the account: they are in Playlists already, and the
++        // account's copy of one would list it a second time.
++        val mine = myPlaylists.mapNotNull { it.remoteId?.bareCollectionId() }.toSet()
+         mergeSaved(playlistsSavedHere.map { it.toPlaylistItem() }, accountPlaylists)
++            .filterNot { it.id.bareCollectionId() in mine }
+     }
+     val collectionSaves = remember(playlistsSavedHere, albumsSavedHere, accountPlaylists, accountAlbums) {
+         val ids = (playlistsSavedHere.map { it.id } + albumsSavedHere.map { it.id } +
+@@ -1197,6 +1203,31 @@ internal fun App(
+         )
+     }
+ 
++    // A new playlist, on the account too when asked. Made there first, so a failure leaves nothing
++    // half-made here; [then] gets the new playlist's id, to add the song or songs it was made for.
++    fun createPlaylistFrom(name: String, cloud: Boolean, then: (String) -> Unit = {}) {
++        if (!cloud) {
++            then(library.createPlaylist(name))
++            return
++        }
++        scope.launch {
++            library.createCloudPlaylist(name)
++                .onSuccess { id -> then(id); youTubeSync.syncAll() }
++                .onFailure { library.cloudProblem.value = "Could not make the playlist on YouTube Music: ${it.message ?: it::class.simpleName}" }
++        }
++    }
++
++    // What a change to a cloud playlist could not send to the account.
++    val cloudProblem by library.cloudProblem.collectAsState()
++    cloudProblem?.let { message ->
++        AlertDialog(
++            onDismissRequest = { library.cloudProblem.value = null },
++            title = { Text("YouTube Music playlist") },
++            text = { Text(message) },
++            confirmButton = { TextButton(onClick = { library.cloudProblem.value = null }) { Text("OK") } },
++        )
++    }
++
+     addingToPlaylist?.let { song ->
+         AddToPlaylistDialog(
+             heading = song.title,
+@@ -1204,7 +1235,8 @@ internal fun App(
+             containing = remember(song.id, playlists) { library.playlistIdsContaining(song.id) },
+             onDismiss = { addingToPlaylist = null },
+             onAdd = { chosen -> chosen.forEach { library.addToPlaylist(it.id, song) } },
+-            onCreateAndAdd = { name -> library.addToPlaylist(library.createPlaylist(name), song) },
++            canSyncToCloud = canSyncPlaylists,
++            onCreateAndAdd = { name, cloud -> createPlaylistFrom(name, cloud) { library.addToPlaylist(it, song) } },
+         )
+     }
+ 
+@@ -1219,10 +1251,8 @@ internal fun App(
+             },
+             onDismiss = { addingListToPlaylist = null },
+             onAdd = { chosen -> chosen.forEach { target -> songs.forEach { library.addToPlaylist(target.id, it) } } },
+-            onCreateAndAdd = { name ->
+-                val id = library.createPlaylist(name)
+-                songs.forEach { library.addToPlaylist(id, it) }
+-            },
++            canSyncToCloud = canSyncPlaylists,
++            onCreateAndAdd = { name, cloud -> createPlaylistFrom(name, cloud) { id -> songs.forEach { library.addToPlaylist(id, it) } } },
+         )
+     }
+ 
+@@ -1966,7 +1996,8 @@ internal fun App(
+                         songsInSelected = openPlaylistSongs,
+                         currentId = queue.current?.id,
+                         onSelect = { openPlaylist = it },
+-                        onCreate = { library.createPlaylist(it) },
++                        onCreate = { name, cloud -> createPlaylistFrom(name, cloud) },
++                        canSyncToCloud = canSyncPlaylists,
+                         onRename = { playlist, name -> library.renamePlaylist(playlist.id, name) },
+                         onDelete = { library.deletePlaylist(it.id) },
+                         // Liked and Downloaded songs are not playlists of their own, so they name their queue;
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt
+index b9b1a06..00af93b 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt
+@@ -71,7 +71,10 @@ fun PlaylistsPane(
+     songsInSelected: List<StoredSong>,
+     currentId: String?,
+     onSelect: (StoredPlaylist?) -> Unit,
+-    onCreate: (String) -> Unit,
++    /** The name, and whether to keep the playlist on the YouTube Music account as well. */
++    onCreate: (String, Boolean) -> Unit,
++    /** True when signed in with read-write sync: the only time a playlist can be made on the account. */
++    canSyncToCloud: Boolean = false,
+     onRename: (StoredPlaylist, String) -> Unit,
+     onDelete: (StoredPlaylist) -> Unit,
+     /** The songs, where to start, and the queue's name when it is not the open playlist's own. */
+@@ -110,9 +113,10 @@ fun PlaylistsPane(
+         NameDialog(
+             title = if (request.existing == null) "New playlist" else "Rename playlist",
+             initial = request.existing?.name ?: "",
++            offerCloud = request.existing == null && canSyncToCloud,
+             onDismiss = { naming = null },
+-            onConfirm = { name ->
+-                if (request.existing == null) onCreate(name) else onRename(request.existing, name)
++            onConfirm = { name, cloud ->
++                if (request.existing == null) onCreate(name, cloud) else onRename(request.existing, name)
+                 naming = null
+             },
+         )
+@@ -470,24 +474,30 @@ private fun NameDialog(
+     title: String,
+     initial: String,
+     onDismiss: () -> Unit,
+-    onConfirm: (String) -> Unit,
++    onConfirm: (String, Boolean) -> Unit,
++    /** Shows "Keep on YouTube Music" - only when a playlist can be made there. */
++    offerCloud: Boolean = false,
+ ) {
+     var name by remember { mutableStateOf(initial) }
++    var cloud by remember { mutableStateOf(false) }
+     AlertDialog(
+         onDismissRequest = onDismiss,
+         title = { Text(title) },
+         text = {
+-            OutlinedTextField(
+-                modifier = Modifier.typingField(),
+-                value = name,
+-                onValueChange = { name = it },
+-                singleLine = true,
+-                label = { Text("Name") },
+-            )
++            Column {
++                OutlinedTextField(
++                    modifier = Modifier.typingField(),
++                    value = name,
++                    onValueChange = { name = it },
++                    singleLine = true,
++                    label = { Text("Name") },
++                )
++                if (offerCloud) CloudPlaylistOption(cloud) { cloud = it }
++            }
+         },
+         confirmButton = {
+             TextButton(
+-                onClick = { onConfirm(name.trim()) },
++                onClick = { onConfirm(name.trim(), cloud) },
+                 // A playlist with no name is unfindable in a list of playlists.
+                 enabled = name.isNotBlank(),
+             ) { Text("Save") }
+@@ -518,10 +528,13 @@ fun AddToPlaylistDialog(
+     containing: Set<String>,
+     onDismiss: () -> Unit,
+     onAdd: (List<StoredPlaylist>) -> Unit,
+-    onCreateAndAdd: (String) -> Unit,
++    onCreateAndAdd: (String, Boolean) -> Unit,
++    /** True when signed in with read-write sync: a new playlist can then be kept on the account. */
++    canSyncToCloud: Boolean = false,
+ ) {
+     var creating by remember { mutableStateOf(false) }
+     var name by remember { mutableStateOf("") }
++    var cloud by remember { mutableStateOf(false) }
+     // Non-null while choosing several: the ids picked so far.
+     var picked by remember { mutableStateOf<Set<String>?>(null) }
+ 
+@@ -547,6 +560,7 @@ fun AddToPlaylistDialog(
+                         singleLine = true,
+                         label = { Text("New playlist name") },
+                     )
++                    if (canSyncToCloud) CloudPlaylistOption(cloud) { cloud = it }
+                 } else {
+                     if (playlists.isEmpty()) {
+                         Text(
+@@ -591,7 +605,7 @@ fun AddToPlaylistDialog(
+             val selection = picked
+             when {
+                 creating -> TextButton(
+-                    onClick = { onCreateAndAdd(name.trim()); onDismiss() },
++                    onClick = { onCreateAndAdd(name.trim(), cloud); onDismiss() },
+                     enabled = name.isNotBlank(),
+                 ) { Text("Create and add") }
+ 
+@@ -763,3 +777,23 @@ private fun PlaylistGrid(
+         }
+     }
+ }
++
++/** The switch that keeps a new playlist on the YouTube Music account too - the phone's "Sync playlist". */
++@Composable
++private fun CloudPlaylistOption(checked: Boolean, onChange: (Boolean) -> Unit) {
++    Row(
++        verticalAlignment = Alignment.CenterVertically,
++        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).clickable { onChange(!checked) },
++    ) {
++        Checkbox(checked = checked, onCheckedChange = null)
++        Spacer(modifier = Modifier.width(8.dp))
++        Column {
++            Text("Keep on YouTube Music")
++            Text(
++                "Made on your account too, so it is there on your phone. Songs added or removed here are sent to it.",
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        }
++    }
++}
+diff --git a/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/DatabaseTest.kt b/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/DatabaseTest.kt
+index 9056d86..d39f56e 100644
+--- a/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/DatabaseTest.kt
++++ b/desktop/src/test/kotlin/com/dd3boh/outertune/desktop/DatabaseTest.kt
+@@ -142,6 +142,16 @@ class DatabaseTest {
+ 
+     // ---- playlists -------------------------------------------------------------------------
+ 
++    @Test
++    fun `a playlist kept on the account remembers its id there, and the others have none`() {
++        db.createPlaylist("p", "Mix", 2)
++        db.createPlaylist("q", "Local", 1)
++        db.setPlaylistRemote("p", "PLabc")
++        assertEquals("PLabc", db.playlistRemoteId("p"))
++        assertEquals(null, db.playlistRemoteId("q"))
++        assertEquals(mapOf("p" to "PLabc", "q" to null), db.playlists().associate { it.id to it.remoteId })
++    }
++
+     @Test
+     fun `a playlist keeps the order songs were added in`() {
+         db.createPlaylist("p", "Mix", 0)
+-- 
+2.43.0
+
