@@ -1,0 +1,97 @@
+name: Build patched
+
+# Applies a patch from the repository root on top of the checked-out source, builds the Windows
+# installer from the result, and uploads BOTH: the installer, and the patch that was applied (so a
+# build can always be traced to, and repeated from, the exact patch it came from).
+#
+# Use: put the patch (a `git format-patch` file, such as outertune-windows.patch) in the repository
+# root, then run this from the Actions tab and name the file. The patch is applied to whatever the
+# chosen branch holds; nothing is committed or pushed by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      patch_file:
+        description: "Patch file in the repository root to apply"
+        required: true
+        default: "outertune-windows.patch"
+      run_tests:
+        description: "Also run the desktop tests before building"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    # Pinned rather than windows-latest: this image ships Inno Setup 6, which the installer needs.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply the patch
+        shell: bash
+        env:
+          PATCH: ${{ inputs.patch_file }}
+        run: |
+          set -e
+          test -f "$PATCH" || { echo "::error::$PATCH is not in the repository root"; exit 1; }
+          git config user.name "patched-build"
+          git config user.email "patched-build@users.noreply.github.com"
+          # Kept outside the work tree: the build must not see it, and it is uploaded below.
+          mkdir -p "$RUNNER_TEMP/applied"
+          cp "$PATCH" "$RUNNER_TEMP/applied/"
+          if git am --3way "$PATCH"; then
+            echo "Applied with git am."
+          else
+            git am --abort || true
+            echo "git am refused it; trying a plain apply."
+            git apply --3way --whitespace=nowarn "$PATCH"
+          fi
+          git log --oneline -5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Make sure Inno Setup is installed
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Run the desktop tests
+        if: ${{ inputs.run_tests }}
+        shell: pwsh
+        run: ./gradlew.bat :desktop:test --stacktrace
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./gradlew.bat :desktop:installer --stacktrace
+
+      - name: Report sizes
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem desktop/build/dist -Filter 'OuterTune-setup-*.exe' | Select-Object -First 1
+          "| What | Size |`n|---|---|`n| $($installer.Name) | $('{0:N1}' -f ($installer.Length / 1MB)) MB |" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: OuterTune-for-Windows-installer
+          path: desktop/build/dist/OuterTune-setup-*.exe
+          if-no-files-found: error
+
+      - name: Upload the patch that was applied
+        uses: actions/upload-artifact@v4
+        with:
+          name: OuterTune-for-Windows-patch
+          path: ${{ runner.temp }}/applied/*
+          if-no-files-found: error
