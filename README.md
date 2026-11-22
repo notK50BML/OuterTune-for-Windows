@@ -38,7 +38,8 @@ separate project from the original OuterTune, under the same GPL-3.0 licence.
 - Compressor with attack, release, compression ratio, gain and limiter settings
 - Easy and intuitive gestures (such as double-tap dials to reset them)
 - AutoEQ support
-[The README is kinda WIP rn]
+
+### Other features (this part is messy, I'm in the process of rewriting the README)
 - Search and play YouTube Music, with albums, artists, playlists and a signed-in home feed
 - Word-by-word lyrics (BetterLyrics, QQ Music, LrcLib, KuGou)
 - Local music files: MP3, FLAC and Ogg Vorbis, with their tags and cover art
