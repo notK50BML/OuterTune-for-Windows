@@ -1,6 +1,6 @@
 # OuterTune for Windows
 
-A YouTube Music player for Windows, built to look and work like the
+A YouTube Music player for Windows, built to look and work like my fork of the
 [OuterTune Android app](https://github.com/notK50BML/OuterTune). It is an independent port: a
 separate project from the original OuterTune, under the same GPL-3.0 licence.
 
