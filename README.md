@@ -4,12 +4,40 @@ A YouTube Music player for Windows, built to look and work like the
 [OuterTune Android app](https://github.com/notK50BML/OuterTune). It is an independent port: a
 separate project from the original OuterTune, under the same GPL-3.0 licence.
 
-### YouTube Music audio playback
+### YouTube Music playback
 
 - Streamed Opus 140kbps streams
 - Full access to the YouTube Music song library
 - Song artist and album linking to YouTube Music artist pages
-- 
+- All songs from the YouTube Music library are downloadable for offline playback
+- Personalised home feed, similar to the actual YouTube Music app
+- Cloud playlists
+
+### Local music playback
+
+- Ability to play most music file formats (MP3, FLAC, OGG and more)
+- Smart linking of artists to their YouTube Music pages
+- Lyrics from multiple providers (more on that in the Lyrics section)
+
+### Lyrics
+
+- Word-synced lyrics from multiple providers, such as BetterLyrics, YouLy+, Musixmatch Word-synced and QQMusic
+- Word-synced lyrics interpolation to quickly give decent word-synced lyrics from line synced sources
+- Choice of word-synced lyrics rendering effects
+- Self-scrolling lyrics
+- Lyrics editor
+- Offset timer, with steps in 10ms or 50ms
+- Reorderable lyrics provider priority
+
+### Equaliser
+- 12-band parametric equaliser
+- Adjustable frequency, Q factor, filter type and decibel value
+- Bass and treble shelving
+- Extensive clipping and distortion protection
+- Ability to fine-tune audio L/R balance
+- Compressor with attack, release, compression ratio, gain and limiter settings
+- Easy and intuitive gestures (such as double-tap dials to reset them)
+- AutoEQ support
 [The README is kinda WIP rn]
 - Search and play YouTube Music, with albums, artists, playlists and a signed-in home feed
 - Word-by-word lyrics (BetterLyrics, QQ Music, LrcLib, KuGou)
@@ -21,15 +49,11 @@ separate project from the original OuterTune, under the same GPL-3.0 licence.
 - Discord rich presence, Windows media controls, sleep timer
 - Updates itself from this repo's releases
 
-No browser engine, VLC or other native player is bundled. Playback is pure Java.
-
 See [desktop/PARITY.md](desktop/PARITY.md) for a feature-by-feature comparison with the Android app.
 
 ## Install
 
-Download `OuterTune-setup-<version>.exe` from [Releases](../../releases) and run it. It installs
-for the current user only, so no administrator prompt. Or download `OuterTune-windows.zip`,
-unzip it anywhere and run `OuterTune.exe`.
+Download `OuterTune-setup-<version>.exe` from [Releases](../../releases) and run it. It can be installed only for the current user, or for all users if the UAC prompt is approved. You can also download `OuterTune-windows.zip`, unzip it anywhere and run `OuterTune.exe` to start the app.
 
 Needs Windows 10 or 11 (64-bit).
 
