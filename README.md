@@ -21,7 +21,7 @@ separate project from the original OuterTune, under the same GPL-3.0 licence.
 
 ### Lyrics
 
-- Word-synced lyrics from multiple providers, such as BetterLyrics, YouLy+, Musixmatch Word-synced and QQMusic
+- Word-synced lyrics from multiple providers, such as BetterLyrics, YouLy+, LRCLIB word-synced and QQMusic
 - Word-synced lyrics interpolation to quickly give decent word-synced lyrics from line synced sources
 - Choice of word-synced lyrics rendering effects
 - Self-scrolling lyrics
