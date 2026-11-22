@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 1/3] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 1/4] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 2/3] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 2/4] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 3/3] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 3/4] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1258,6 +1258,163 @@ index 52aaf60..21edc39 100644
                                  // The reorder does not touch the playlist list, so nothing would
                                  // re-read the songs. Touching it is what makes the new order appear.
                                  library.refreshAll()
+-- 
+2.43.0
+
+
+From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 18:59:10 +0800
+Subject: [PATCH 4/4] Playlists: lock and unlock; handles are drawn only while
+ unlocked
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../com/dd3boh/outertune/desktop/Main.kt      |  2 +
+ .../dd3boh/outertune/desktop/PlaylistsPane.kt | 85 ++++++++++---------
+ .../com/dd3boh/outertune/desktop/Settings.kt  |  3 +
+ 3 files changed, 51 insertions(+), 39 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+index 21edc39..ea6d7bb 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+@@ -1988,6 +1988,8 @@ internal fun App(
+                         },
+                         grid = settings.playlistsGrid,
+                         onToggleGrid = { settings.playlistsGrid = !settings.playlistsGrid },
++                        editLocked = settings.playlistEditLocked,
++                        onToggleLock = { settings.playlistEditLocked = !settings.playlistEditLocked },
+                         onDownloadAll = { title, songs -> downloadAll(title, songs.map { it.toItem() }) },
+                         downloadedIds = downloadedIds,
+                         downloadingTitle = downloadingTitle,
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt
+index 00af93b..733a955 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlaylistsPane.kt
+@@ -92,6 +92,9 @@ fun PlaylistsPane(
+     downloaded: List<StoredSong> = emptyList(),
+     grid: Boolean = false,
+     onToggleGrid: () -> Unit = {},
++    /** While locked a playlist's rows have no drag handles, so a stray drag cannot reorder it - the phone's lock. */
++    editLocked: Boolean = false,
++    onToggleLock: () -> Unit = {},
+     /** The open playlist's ⋮: play next, add to queue, export... Rename and Delete are added here. */
+     menuFor: (StoredPlaylist, List<StoredSong>) -> PlaylistActions = { _, _ -> PlaylistActions() },
+     /**
+@@ -343,6 +346,8 @@ fun PlaylistsPane(
+                     onDownload = { onDownloadAll(selected.name, songsInSelected) },
+                 )
+             }
++            // The phone's lock: unlocked, every row has a handle to drag it by; locked, none does.
++            TextButton(onClick = onToggleLock) { Text(if (editLocked) "Unlock" else "Lock") }
+             // Everything else the phone's playlist menu has, behind a ⋮ as it is there.
+             PlaylistMenuButton(
+                 menuFor(selected, songsInSelected).copy(
+@@ -411,47 +416,49 @@ fun PlaylistsPane(
+                     }
+                     TextButton(onClick = { onRemoveSong(selected, song) }) { Text("✕") }
+ 
+-                    // A handle rather than the whole row, for the same reason the queue uses one:
+-                    // the row is already a click target for playing the song, and a list where
+-                    // pressing anything might mean "drag" is a list that cannot be scrolled with
+-                    // confidence.
+-                    Icon(
+-                        OuterTuneIcons.dragHandle,
+-                        contentDescription = "Reorder",
+-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+-                        modifier = Modifier
+-                            .padding(end = 8.dp)
+-                            .size(22.dp)
+-                            .pointerHoverIcon(PointerIcon.Hand)
+-                            .pointerInput(song.id) {
+-                                detectDragGestures(
+-                                    onDragStart = {
+-                                        dragging = currentIndex
+-                                        dragOffset = 0f
+-                                    },
+-                                    onDragEnd = { dragging = -1; dragOffset = 0f },
+-                                    onDragCancel = { dragging = -1; dragOffset = 0f },
+-                                ) { change, amount ->
+-                                    change.consume()
+-                                    dragOffset += amount.y
+-                                    // Stepped a whole row at a time rather than continuously, so
+-                                    // the list settles between moves instead of thrashing while the
+-                                    // pointer crosses a boundary.
+-                                    val steps = (dragOffset / rowHeightPx).toInt()
+-                                    if (steps != 0 && dragging >= 0) {
+-                                        val target = (dragging + steps)
+-                                            .coerceIn(0, songsInSelected.lastIndex)
+-                                        if (target != dragging) {
+-                                            onMoveSong(selected, dragging, target)
+-                                            dragging = target
++                    if (!editLocked) {
++                        // A handle rather than the whole row, for the same reason the queue uses one:
++                        // the row is already a click target for playing the song, and a list where
++                        // pressing anything might mean "drag" is a list that cannot be scrolled with
++                        // confidence.
++                        Icon(
++                            OuterTuneIcons.dragHandle,
++                            contentDescription = "Reorder",
++                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
++                            modifier = Modifier
++                                .padding(end = 8.dp)
++                                .size(22.dp)
++                                .pointerHoverIcon(PointerIcon.Hand)
++                                .pointerInput(song.id) {
++                                    detectDragGestures(
++                                        onDragStart = {
++                                            dragging = currentIndex
++                                            dragOffset = 0f
++                                        },
++                                        onDragEnd = { dragging = -1; dragOffset = 0f },
++                                        onDragCancel = { dragging = -1; dragOffset = 0f },
++                                    ) { change, amount ->
++                                        change.consume()
++                                        dragOffset += amount.y
++                                        // Stepped a whole row at a time rather than continuously, so
++                                        // the list settles between moves instead of thrashing while the
++                                        // pointer crosses a boundary.
++                                        val steps = (dragOffset / rowHeightPx).toInt()
++                                        if (steps != 0 && dragging >= 0) {
++                                            val target = (dragging + steps)
++                                                .coerceIn(0, songsInSelected.lastIndex)
++                                            if (target != dragging) {
++                                                onMoveSong(selected, dragging, target)
++                                                dragging = target
++                                            }
++                                            // Whatever the step consumed is taken off, so the remainder
++                                            // still counts towards the next one.
++                                            dragOffset -= steps * rowHeightPx
+                                         }
+-                                        // Whatever the step consumed is taken off, so the remainder
+-                                        // still counts towards the next one.
+-                                        dragOffset -= steps * rowHeightPx
+                                     }
+-                                }
+-                            },
+-                    )
++                                },
++                        )
++                    }
+                 }
+             }
+         }
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+index 28bec89..4638796 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+@@ -110,6 +110,9 @@ class Settings(private val store: SettingsStore) {
+     /** Playlists shown as a grid of tiles rather than a list - the phone's view switch. */
+     var playlistsGrid by bool("ui.playlistsGrid", false)
+ 
++    /** Playlists locked against reordering: their drag handles are not drawn. Off, as on the phone. */
++    var playlistEditLocked by bool("ui.playlistEditLocked", false)
++
+     /** Account and sync - the phone's Settings > Account and sync, option for option. */
+     var syncAuto by bool("sync.auto", true)
+     /** What a sync brings in, in the phone's letters - see [SyncKind]. */
 -- 
 2.43.0
 
