@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 1/5] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 1/6] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 2/5] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 2/6] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 3/5] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 3/6] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 4/5] Playlists: lock and unlock; handles are drawn only while
+Subject: [PATCH 4/6] Playlists: lock and unlock; handles are drawn only while
  unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1422,7 +1422,7 @@ index 28bec89..4638796 100644
 From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:06:25 +0800
-Subject: [PATCH 5/5] Precache the next N songs, with a slider under Settings >
+Subject: [PATCH 5/6] Precache the next N songs, with a slider under Settings >
  Experimental (default 2)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1636,6 +1636,321 @@ index ca78f91..c3058dd 100644
  }
  
  @Composable
+-- 
+2.43.0
+
+
+From 6ee8e8c58ed662a5d77547f075167e9442dc8488 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 22:20:34 +0800
+Subject: [PATCH 6/6] Hold the next button to preview the next song, with
+ optional label
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../dd3boh/outertune/desktop/DesktopPlayer.kt |  6 +-
+ .../dd3boh/outertune/desktop/HoldToPreview.kt | 75 +++++++++++++++++++
+ .../com/dd3boh/outertune/desktop/Main.kt      |  6 +-
+ .../outertune/desktop/NowPlayingScreen.kt     |  7 +-
+ .../dd3boh/outertune/desktop/PlayerQueue.kt   | 63 +++++++++++++++-
+ .../com/dd3boh/outertune/desktop/Settings.kt  |  4 +
+ .../dd3boh/outertune/desktop/SettingsPane.kt  | 14 ++++
+ 7 files changed, 169 insertions(+), 6 deletions(-)
+ create mode 100644 desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HoldToPreview.kt
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
+index e708a32..b2830e8 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
+@@ -327,6 +327,10 @@ class DesktopPlayer {
+             volumeLevel.value = value
+         }
+ 
++    /** Faded by hold-to-preview to switch between songs smoothly; 1 otherwise. */
++    @Volatile
++    var previewFactor: Float = 1f
++
+     /** The current track's normalisation gain, linear. 1 when off or unknown. */
+     @Volatile
+     private var trackGain: Float = 1f
+@@ -1283,7 +1287,7 @@ class DesktopPlayer {
+             // Normalisation and volume, after the analysis so the visualiser shows the music
+             // rather than how loud it has been set.
+             // Normalisation only here if the equaliser did not already take it.
+-            val gain = (if (normalise && !normalised) trackGain else 1f) * volume.coerceIn(0f, 1f)
++            val gain = (if (normalise && !normalised) trackGain else 1f) * volume.coerceIn(0f, 1f) * previewFactor
+             if (gain < 0.999f) Pcm.scale(stretched, stretched.size, bitsPerSample, bigEndian, gain)
+ 
+             // Last, and after the analysis: the spectrum is a mono sum, so balance before it would
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HoldToPreview.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HoldToPreview.kt
+new file mode 100644
+index 0000000..9324107
+--- /dev/null
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HoldToPreview.kt
+@@ -0,0 +1,75 @@
++package com.dd3boh.outertune.desktop
++
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
++import androidx.compose.foundation.gestures.waitForUpOrCancellation
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.input.pointer.PointerEventPass
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.withTimeoutOrNull
++
++/** What the next button and the label need to reach the queue, set from Main. */
++object PreviewControl {
++    var queue: PlayerQueue? = null
++    var enabled by mutableStateOf(false)
++    var showLabel by mutableStateOf(true)
++}
++
++/**
++ * Hold to fade into the next song as a preview; release to fade back, or drag right while holding
++ * to keep the next song.
++ */
++fun Modifier.holdNextPreview(): Modifier = pointerInput(Unit) {
++    val swipePx = 56.dp.toPx()
++    awaitEachGesture {
++        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
++        val queue = PreviewControl.queue
++        if (!PreviewControl.enabled || queue == null) return@awaitEachGesture
++        var released = false
++        withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
++            waitForUpOrCancellation(PointerEventPass.Initial)
++            released = true
++        }
++        if (released) return@awaitEachGesture // a plain click: the button handles it
++
++        queue.startPreview()
++        var committed = false
++        while (true) {
++            val event = awaitPointerEvent(PointerEventPass.Initial)
++            event.changes.forEach { it.consume() } // so the release is not also a click
++            val change = event.changes.firstOrNull { it.id == down.id } ?: break
++            if (!change.pressed) break
++            if (!committed && change.position.x - down.position.x > swipePx) {
++                committed = true
++                queue.commitPreview()
++            }
++        }
++        if (!committed) queue.cancelPreview()
++    }
++}
++
++/** "Previewing [song]", above the transport controls while a preview plays. */
++@Composable
++fun PreviewLabel() {
++    val title by (PreviewControl.queue?.previewTitle ?: return).collectAsState()
++    val t = title
++    if (!PreviewControl.showLabel || t == null) return
++    Text(
++        "Previewing $t",
++        style = MaterialTheme.typography.labelLarge,
++        color = MaterialTheme.colorScheme.primary,
++        maxLines = 1,
++        overflow = TextOverflow.Ellipsis,
++        modifier = Modifier.padding(bottom = 6.dp),
++    )
++}
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+index cbd4a7f..e1eca70 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+@@ -403,6 +403,10 @@ internal fun App(
+     // Each start of a song, as its own value: the play counting below is keyed on it rather than
+     // on the song's id, which stays the same when repeat-one loops a song or one is played again -
+     // only the first of those was ever counted.
++    SideEffect {
++        PreviewControl.enabled = settings.holdNextPreview
++        PreviewControl.showLabel = settings.showPreviewLabel
++    }
+     val songStart = remember { mutableStateOf<SongStart?>(null) }
+     val currentSettings by rememberUpdatedState(settings)
+     val playerQueue = remember {
+@@ -411,7 +415,7 @@ internal fun App(
+             player, scope,
+             onPlayed = { songStart.value = SongStart(it) },
+             precacheCount = { currentSettings.precacheCount },
+-        )
++        ).also { PreviewControl.queue = it }
+     }
+ 
+     val playback by player.state.collectAsState()
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt
+index b177367..7dfd71d 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt
+@@ -438,6 +438,8 @@ fun NowPlayingScreen(
+         // The transport controls, laid out exactly as Player.kt's controlsBlock - shared by the
+         // built-in layout and an imported one, so both draw the same row.
+         val transportRow: @Composable () -> Unit = {
++        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
++        PreviewLabel()
+         Row(
+             verticalAlignment = Alignment.CenterVertically,
+             modifier = Modifier.fillMaxWidth(),
+@@ -517,7 +519,7 @@ fun NowPlayingScreen(
+                 IconButton(
+                     onClick = onNext,
+                     enabled = queue.hasNext,
+-                    modifier = Modifier.size(transportSize),
++                    modifier = Modifier.size(transportSize).holdNextPreview(),
+                 ) {
+                     Icon(
+                         OuterTuneIcons.skipNext, "Next",
+@@ -537,6 +539,7 @@ fun NowPlayingScreen(
+             }
+         }
+         }
++        }
+ 
+         // One transport button on its own, for a layout that places them individually.
+         val transportMember: @Composable (String) -> Unit = { id ->
+@@ -547,7 +550,7 @@ fun NowPlayingScreen(
+                 "skip_previous" -> IconButton(onClick = onPrevious, enabled = queue.hasPrevious, modifier = Modifier.size(transportSize)) {
+                     Icon(OuterTuneIcons.skipPrevious, "Previous", tint = onBackground, modifier = Modifier.size(transportIcon))
+                 }
+-                "skip_next" -> IconButton(onClick = onNext, enabled = queue.hasNext, modifier = Modifier.size(transportSize)) {
++                "skip_next" -> IconButton(onClick = onNext, enabled = queue.hasNext, modifier = Modifier.size(transportSize).holdNextPreview()) {
+                     Icon(OuterTuneIcons.skipNext, "Next", tint = onBackground, modifier = Modifier.size(transportIcon))
+                 }
+                 "seek_backward" -> IconButton(onClick = { onSeek((positionMs() - seekStepMs).coerceAtLeast(0)) }, modifier = Modifier.size(transportSize)) {
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt
+index 8ddb20e..891d599 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt
+@@ -486,6 +486,65 @@ class PlayerQueue(
+         moveTo(queue.orderPosition - 1)
+     }
+ 
++    // ---- Hold next to preview --------------------------------------------------------------
++
++    /** Title of the song being previewed, or null when no preview is under way. */
++    val previewTitle = MutableStateFlow<String?>(null)
++    private var previewJob: Job? = null
++    private var previewing = false
++    private var previewOrigin: Triple<Int, Long, Boolean>? = null
++
++    private suspend fun fadePreview(target: Float, ms: Long) {
++        val from = player.previewFactor
++        val steps = (ms / 25).toInt().coerceAtLeast(1)
++        for (i in 1..steps) {
++            player.previewFactor = from + (target - from) * i / steps
++            kotlinx.coroutines.delay(25)
++        }
++        player.previewFactor = target
++    }
++
++    /** Fades out the current song and into the next as a preview. [cancelPreview] returns to where it was. */
++    fun startPreview() {
++        val queue = state.value
++        if (previewing || queue.orderPosition >= queue.order.lastIndex) return
++        val next = queue.upcoming ?: return
++        previewing = true
++        previewOrigin = Triple(queue.orderPosition, player.positionMs.value, player.state.value is PlaybackState.Paused)
++        previewJob?.cancel()
++        previewJob = scope.launch {
++            fadePreview(0f, 250)
++            moveTo(queue.orderPosition + 1)
++            previewTitle.value = next.title
++            fadePreview(1f, 400)
++        }
++    }
++
++    /** Keeps the previewed song, which carries on from however far in the preview got. */
++    fun commitPreview() {
++        if (!previewing) return
++        previewing = false
++        previewOrigin = null
++        previewTitle.value = null
++    }
++
++    /** Fades back to the song that was playing, at the position it was left. */
++    fun cancelPreview() {
++        if (!previewing) return
++        previewing = false
++        val (position, ms, wasPaused) = previewOrigin ?: return
++        previewOrigin = null
++        val pending = previewJob
++        previewJob = scope.launch {
++            pending?.join()
++            fadePreview(0f, 250)
++            moveTo(position, ms)
++            if (wasPaused) player.pause()
++            previewTitle.value = null
++            fadePreview(1f, 400)
++        }
++    }
++
+     /** Jumps to a specific entry, for clicking a row in the queue. */
+     fun jumpTo(index: Int) {
+         val queue = state.value
+@@ -528,11 +587,11 @@ class PlayerQueue(
+         )
+     }
+ 
+-    private fun moveTo(orderPosition: Int) {
++    private fun moveTo(orderPosition: Int, startAtMs: Long = 0L) {
+         val queue = state.value
+         val index = queue.order.getOrNull(orderPosition) ?: return
+         state.value = queue.copy(index = index, orderPosition = orderPosition)
+-        startCurrent()
++        startCurrent(startAtMs)
+     }
+ 
+     /**
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+index 8562051..94e090c 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+@@ -151,6 +151,10 @@ class Settings(private val store: SettingsStore) {
+ 
+     /** How many queues are kept aside - the phone's max queues. */
+     var maxQueues by int("player.maxQueues", 19)
++    /** Hold the next button to fade into the next song as a preview. */
++    var holdNextPreview by bool("player.holdNextPreview", false)
++    /** Shows "Previewing [song]" while a preview plays. */
++    var showPreviewLabel by bool("player.showPreviewLabel", true)
+     /** How many upcoming songs are fetched ahead of time. */
+     var precacheCount by int("player.precacheCount", 2)
+ 
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+index c3058dd..ed477c4 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+@@ -865,6 +865,20 @@ private fun PlayerSettings(settings: Settings) {
+         )
+     }
+     Section("Experimental") {
++        SettingSwitch(
++            title = "Hold next to preview",
++            subtitle = "Hold the next button to fade into the next song. Release to fade back, or drag right to keep it.",
++            checked = settings.holdNextPreview,
++            onCheckedChange = { settings.holdNextPreview = it },
++            icon = OuterTuneIcons.skipNext,
++        )
++        SettingSwitch(
++            title = "Show \"Previewing\" label",
++            subtitle = "Names the song above the controls while previewing.",
++            checked = settings.showPreviewLabel,
++            onCheckedChange = { settings.showPreviewLabel = it },
++            icon = OuterTuneIcons.skipNext,
++        )
+         SettingSlider(
+             title = "Songs to precache",
+             subtitle = "How many upcoming songs are downloaded while the current one plays.",
 -- 
 2.43.0
 
