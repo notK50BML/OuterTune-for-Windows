@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 1/4] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 1/5] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 2/4] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 2/5] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 3/4] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 3/5] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 4/4] Playlists: lock and unlock; handles are drawn only while
+Subject: [PATCH 4/5] Playlists: lock and unlock; handles are drawn only while
  unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1415,6 +1415,227 @@ index 28bec89..4638796 100644
      /** Account and sync - the phone's Settings > Account and sync, option for option. */
      var syncAuto by bool("sync.auto", true)
      /** What a sync brings in, in the phone's letters - see [SyncKind]. */
+-- 
+2.43.0
+
+
+From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 22:06:25 +0800
+Subject: [PATCH 5/5] Precache the next N songs, with a slider under Settings >
+ Experimental (default 2)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../dd3boh/outertune/desktop/DesktopPlayer.kt | 31 +++++++++++++------
+ .../com/dd3boh/outertune/desktop/Main.kt      |  8 ++++-
+ .../dd3boh/outertune/desktop/PlayerQueue.kt   | 31 ++++++++++++++++++-
+ .../com/dd3boh/outertune/desktop/Settings.kt  |  2 ++
+ .../dd3boh/outertune/desktop/SettingsPane.kt  | 14 +++++++++
+ 5 files changed, 75 insertions(+), 11 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
+index 86b2a65..e708a32 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
+@@ -388,12 +388,11 @@ class DesktopPlayer {
+         // the queue advances - so a read followed by a separate write can interleave with
+         // dropPrefetch() and leave a Deferred cancelled underneath a caller that has already
+         // decided to use it.
+-        val taken = prefetched.getAndSet(null)
+-        val ready = taken?.takeIf { it.videoId == videoId }
++        val ready = prefetched.remove(videoId)
+         // A prediction that missed - the user jumped somewhere else - is cancelled rather than just
+         // dropped. Letting it run finishes downloading a song nobody is going to hear, competing
+         // for the connection with the one they just asked for.
+-        if (ready == null) taken?.bytes?.cancel()
++        if (ready == null) dropPrefetch()
+         stop()
+         // After stop(), which cancels whatever the *previous* play claimed. Recorded so this one
+         // can be cancelled in turn: once claimed, the Deferred is reachable only from the job
+@@ -531,7 +530,7 @@ class DesktopPlayer {
+     private class Prefetched(val videoId: String, val bytes: Deferred<Resolved>)
+ 
+     /** Atomic rather than volatile: claiming it is a take, not a read - see [play]. */
+-    private val prefetched = AtomicReference<Prefetched?>(null)
++    private val prefetched = java.util.concurrent.ConcurrentHashMap<String, Prefetched>()
+ 
+     /**
+      * The prefetch [play] is currently waiting on, so it can still be cancelled.
+@@ -585,10 +584,10 @@ class DesktopPlayer {
+         // queue no longer has; reusing the bytes already decoded would fix both, and is the better
+         // answer whenever this is worth revisiting.
+         if (videoId == nowPlayingId) return
+-        if (prefetched.get()?.videoId == videoId) return
++        if (prefetched.containsKey(videoId)) return
+         // Nothing to fetch for a file that is already on disk.
+         if (LocalMusic.isLocal(videoId)) return
+-        prefetched.getAndSet(
++        prefetched.put(videoId,
+             Prefetched(
+                 videoId = videoId,
+                 // runCatching inside, so this Deferred can never complete exceptionally. An async
+@@ -599,12 +598,26 @@ class DesktopPlayer {
+                         .getOrElse { Resolved.Failure("prefetch failed - ${it::class.simpleName}: ${it.message}") }
+                 },
+             )
+-        )?.bytes?.cancel()
++        )
++    }
++
++    /** Waits for [videoId]'s prefetch to finish, so the next one can start after it rather than beside it. */
++    suspend fun awaitPrefetched(videoId: String) {
++        val ready = prefetched[videoId] ?: return
++        runCatching { ready.bytes.await() }
++        currentCoroutineContext().ensureActive()
++    }
++
++    /** Cancels every prefetch except [keep]'s - the queue moved, and these are no longer what comes next. */
++    fun keepPrefetched(keep: Set<String>) {
++        for (id in prefetched.keys.toList()) {
++            if (id !in keep) prefetched.remove(id)?.bytes?.cancel()
++        }
+     }
+ 
+     /** Throws away whatever was fetched ahead, for when the queue it was predicting no longer exists. */
+     fun dropPrefetch() {
+-        prefetched.getAndSet(null)?.bytes?.cancel()
++        for (id in prefetched.keys.toList()) prefetched.remove(id)?.bytes?.cancel()
+     }
+ 
+     fun stop() {
+@@ -684,7 +697,7 @@ class DesktopPlayer {
+         if (store.has(videoId)) return@withContext Result.success(Unit)
+         // Already fetched - playing, or prefetched as the next song: saved without another fetch.
+         currentAudio?.takeIf { it.first == videoId }?.let { return@withContext store.save(videoId, it.second) }
+-        prefetched.get()?.takeIf { it.videoId == videoId && it.bytes.isCompleted && !it.bytes.isCancelled }
++        prefetched[videoId]?.takeIf { it.bytes.isCompleted && !it.bytes.isCancelled }
+             ?.let { (it.bytes.getCompleted() as? Resolved.Audio)?.let { audio -> return@withContext store.save(videoId, audio.bytes) } }
+         when (val outcome = resolveAndFetch(videoId)) {
+             is Resolved.Audio -> store.save(videoId, outcome.bytes)
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+index ea6d7bb..cbd4a7f 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+@@ -87,6 +87,7 @@ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.mutableStateListOf
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+@@ -403,9 +404,14 @@ internal fun App(
+     // on the song's id, which stays the same when repeat-one loops a song or one is played again -
+     // only the first of those was ever counted.
+     val songStart = remember { mutableStateOf<SongStart?>(null) }
++    val currentSettings by rememberUpdatedState(settings)
+     val playerQueue = remember {
+         // Counted below, once enough of the song has been heard - not here, at the start.
+-        PlayerQueue(player, scope, onPlayed = { songStart.value = SongStart(it) })
++        PlayerQueue(
++            player, scope,
++            onPlayed = { songStart.value = SongStart(it) },
++            precacheCount = { currentSettings.precacheCount },
++        )
+     }
+ 
+     val playback by player.state.collectAsState()
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt
+index 2b17db2..8ddb20e 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerQueue.kt
+@@ -78,6 +78,27 @@ data class QueueState(
+             else -> null
+         }
+ 
++    /**
++     * The next [count] songs [PlayerQueue.next] would reach, in order, for fetching several ahead.
++     * Stops at the end of the queue unless repeat-all wraps it; repeat-one has nothing new coming.
++     */
++    fun upcomingSongs(count: Int): List<SongItem> {
++        if (order.isEmpty() || repeat == RepeatMode.ONE) return emptyList()
++        val out = ArrayList<SongItem>()
++        for (k in 1..count) {
++            val pos = orderPosition + k
++            val idx = when {
++                pos <= order.lastIndex -> order[pos]
++                repeat == RepeatMode.ALL -> order[pos % order.size]
++                else -> break
++            }
++            val song = songs.getOrNull(idx) ?: break
++            if (song.id == current?.id || out.any { it.id == song.id }) break
++            out += song
++        }
++        return out
++    }
++
+     /**
+      * Repeat-all makes both directions always available, since either end wraps. Repeat-one does
+      * not: the buttons move through the queue as if repeat were off, as on the phone - only a song
+@@ -179,6 +200,8 @@ class PlayerQueue(
+     private val player: DesktopPlayer,
+     private val scope: CoroutineScope,
+     private val onPlayed: (SongItem) -> Unit = {},
++    /** How many upcoming songs to fetch ahead; read each time, so the setting applies at once. */
++    private val precacheCount: () -> Int = { 2 },
+ ) {
+     val state = MutableStateFlow(QueueState())
+ 
+@@ -557,7 +580,13 @@ class PlayerQueue(
+                 it is PlaybackState.Playing || it is PlaybackState.Failed
+             }
+             if (started !is PlaybackState.Playing) return@launch
+-            state.value.upcoming?.let { player.prefetch(scope, it.id) }
++            val ahead = state.value.upcomingSongs(precacheCount().coerceIn(1, 5))
++            player.keepPrefetched(ahead.map { it.id }.toSet())
++            // One after another, nearest first: together they would only slow each other down.
++            for (song in ahead) {
++                player.prefetch(scope, song.id)
++                player.awaitPrefetched(song.id)
++            }
+         }
+     }
+ }
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+index 4638796..8562051 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+@@ -151,6 +151,8 @@ class Settings(private val store: SettingsStore) {
+ 
+     /** How many queues are kept aside - the phone's max queues. */
+     var maxQueues by int("player.maxQueues", 19)
++    /** How many upcoming songs are fetched ahead of time. */
++    var precacheCount by int("player.precacheCount", 2)
+ 
+     /** Evens out volume between tracks using YouTube's loudness figure. Only ever turns down. */
+     var audioNormalisation by bool("player.normalise", false)
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+index ca78f91..c3058dd 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+@@ -864,6 +864,20 @@ private fun PlayerSettings(settings: Settings) {
+             divider = false,
+         )
+     }
++    Section("Experimental") {
++        SettingSlider(
++            title = "Songs to precache",
++            subtitle = "How many upcoming songs are downloaded while the current one plays.",
++            icon = OuterTuneIcons.graphicEq,
++            value = settings.precacheCount,
++            range = 1..5,
++            step = 1,
++            format = { "$it" },
++            default = 2,
++            onChange = { settings.precacheCount = it },
++            divider = false,
++        )
++    }
+ }
+ 
+ @Composable
 -- 
 2.43.0
 
