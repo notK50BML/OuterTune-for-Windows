@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 01/11] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 01/12] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 02/11] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 02/12] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 03/11] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 03/12] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 04/11] Playlists: lock and unlock; handles are drawn only
+Subject: [PATCH 04/12] Playlists: lock and unlock; handles are drawn only
  while unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1422,7 +1422,7 @@ index 28bec89..4638796 100644
 From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:06:25 +0800
-Subject: [PATCH 05/11] Precache the next N songs, with a slider under Settings
+Subject: [PATCH 05/12] Precache the next N songs, with a slider under Settings
  > Experimental (default 2)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1643,7 +1643,7 @@ index ca78f91..c3058dd 100644
 From 6ee8e8c58ed662a5d77547f075167e9442dc8488 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:20:34 +0800
-Subject: [PATCH 06/11] Hold the next button to preview the next song, with
+Subject: [PATCH 06/12] Hold the next button to preview the next song, with
  optional label
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1958,7 +1958,7 @@ index c3058dd..ed477c4 100644
 From 81c8cf84bc6015cfd7e2eaabdaadc3b8a497cfa3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:21:48 +0800
-Subject: [PATCH 07/11] Previewing label: above the title, centred over
+Subject: [PATCH 07/12] Previewing label: above the title, centred over
  play/pause
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2027,7 +2027,7 @@ index 7dfd71d..f6edc99 100644
 From 87ff111251a3a87d7d3582f27ba9bf68396d9aa5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:44:31 +0800
-Subject: [PATCH 08/11] Preview label: a small translucent Previewing pill,
+Subject: [PATCH 08/12] Preview label: a small translucent Previewing pill,
  like the lyrics-type tag
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2124,7 +2124,7 @@ index f6edc99..5186d19 100644
 From 5c325cce6f9fb49001fdde73b5bd1235893202d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:49:53 +0800
-Subject: [PATCH 09/11] Mini player lyrics follow the Fade/Sweep setting
+Subject: [PATCH 09/12] Mini player lyrics follow the Fade/Sweep setting
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2280,7 +2280,7 @@ index a614ff2..e6cec83 100644
 From 28bbe970f7ff39b3a49e893120afb010cae042ec Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:58:39 +0800
-Subject: [PATCH 10/11] Liquid glass for the desktop player: controls, queue
+Subject: [PATCH 10/12] Liquid glass for the desktop player: controls, queue
  and equaliser cards, with switches and intensity
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2787,7 +2787,7 @@ index ed477c4..0fedc6c 100644
 From 327820f4da8c2d7226d0d4125fe609c868a66ce4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:10:07 +0800
-Subject: [PATCH 11/11] Glass: fix outline imports; glass for the search fields
+Subject: [PATCH 11/12] Glass: fix outline imports; glass for the search fields
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2950,6 +2950,68 @@ index 0fedc6c..8a8bd64 100644
              SettingSlider(
                  title = "Intensity",
                  subtitle = "Low is frosted and barely bent; high is clear and strongly bent.",
+-- 
+2.43.0
+
+
+From a6d5ef3e1b1552f17d13ac8b8ac3ea0d22af0cad Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 11:21:08 +0800
+Subject: [PATCH 12/12] Glass: draw outlines through drawPath
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../com/dd3boh/outertune/desktop/Glass.kt      | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Glass.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Glass.kt
+index 5d188ee..ddda43f 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Glass.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Glass.kt
+@@ -19,7 +19,10 @@ import androidx.compose.ui.graphics.asComposeRenderEffect
+ import androidx.compose.ui.graphics.addOutline
+ import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.graphics.drawscope.clipPath
+-import androidx.compose.ui.graphics.drawscope.drawOutline
++import androidx.compose.ui.graphics.drawscope.DrawScope
++import androidx.compose.ui.graphics.drawscope.DrawStyle
++import androidx.compose.ui.graphics.drawscope.Fill
++import androidx.compose.ui.graphics.Outline
+ import androidx.compose.ui.graphics.drawscope.translate
+ import androidx.compose.ui.graphics.layer.GraphicsLayer
+ import androidx.compose.ui.graphics.layer.drawLayer
+@@ -155,9 +158,9 @@ fun Modifier.liquidGlass(
+         val strength = Glass.intensity.coerceIn(0f, 1f)
+         return this.drawWithContent {
+             val outline = shape.createOutline(size, layoutDirection, this)
+-            drawOutline(outline, Brush.verticalGradient(listOf(base.copy(alpha = 0.55f), base.copy(alpha = 0.30f + 0.1f * (1f - strength)))))
+-            drawOutline(outline, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.14f), Color.Transparent)))
+-            drawOutline(
++            drawShape(outline, Brush.verticalGradient(listOf(base.copy(alpha = 0.55f), base.copy(alpha = 0.30f + 0.1f * (1f - strength)))))
++            drawShape(outline, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.14f), Color.Transparent)))
++            drawShape(
+                 outline,
+                 brush = Brush.linearGradient(
+                     0f to Color.White.copy(alpha = 0.50f),
+@@ -213,7 +216,7 @@ fun Modifier.liquidGlass(
+                 drawLayer(own)
+                 drawRect(tint)
+             }
+-            drawOutline(
++            drawShape(
+                 outline,
+                 brush = Brush.linearGradient(
+                     0f to rim.copy(alpha = 0.55f),
+@@ -225,3 +228,8 @@ fun Modifier.liquidGlass(
+             drawContent()
+         }
+ }
++
++/** Fills or strokes [outline] with [brush]. */
++private fun DrawScope.drawShape(outline: Outline, brush: Brush, style: DrawStyle = Fill) {
++    drawPath(Path().apply { addOutline(outline) }, brush, style = style)
++}
 -- 
 2.43.0
 
