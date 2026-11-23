@@ -14,6 +14,15 @@ on:
         description: "Patch file in the repository root to apply"
         required: true
         default: "outertune-windows.patch"
+      version:
+        description: "Release number for this build, e.g. 0.6 or 0.6.1 (blank keeps the version in the source)"
+        required: false
+        default: ""
+      draft_release:
+        description: "Also draft a GitHub release (tag v<version>-Windows) holding the installer"
+        required: false
+        type: boolean
+        default: false
       run_tests:
         description: "Also run the desktop tests before building"
         required: false
@@ -21,7 +30,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write # only used to draft a release, when asked
 
 jobs:
   windows:
@@ -52,6 +61,23 @@ jobs:
             git apply --3way --whitespace=nowarn "$PATCH"
           fi
           git log --oneline -5
+
+      - name: Set the release number
+        if: ${{ inputs.version != '' }}
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -e
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::version must look like 0.6 or 0.6.1"; exit 1; }
+          # Windows' installer and jpackage need three digits-only parts; the name can be shorter.
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then NUMERIC="$VERSION.0"; else NUMERIC="$VERSION"; fi
+          OLD_NUMERIC=$(sed -n 's/.*const val NUMERIC = "\(.*\)"/\1/p' desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopVersion.kt)
+          OLD_NAME=$(sed -n 's/.*const val NAME = "\(.*\)"/\1/p' desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopVersion.kt)
+          sed -i "s/NAME = \"$OLD_NAME\"/NAME = \"$VERSION\"/; s/NUMERIC = \"$OLD_NUMERIC\"/NUMERIC = \"$NUMERIC\"/" desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopVersion.kt
+          sed -i "s/$OLD_NUMERIC/$NUMERIC/g; s#/DAppVersion=$OLD_NAME\"#/DAppVersion=$VERSION\"#" desktop/build.gradle.kts
+          grep -n "$NUMERIC\|DAppVersion" desktop/build.gradle.kts
+          echo "NUMERIC=$NUMERIC" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -95,3 +121,13 @@ jobs:
           name: OuterTune-for-Windows-patch
           path: ${{ runner.temp }}/applied/*
           if-no-files-found: error
+
+      - name: Draft a release
+        if: ${{ inputs.draft_release && inputs.version != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          $files = Get-ChildItem desktop/build/dist -File -Filter 'OuterTune-setup-*.exe'
+          gh release create "v$env:VERSION-Windows" $files.FullName --draft --target "${{ github.sha }}" --title "OuterTune for Windows $env:VERSION" --generate-notes
