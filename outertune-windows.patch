@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 01/15] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 01/17] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 02/15] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 02/17] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 03/15] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 03/17] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 04/15] Playlists: lock and unlock; handles are drawn only
+Subject: [PATCH 04/17] Playlists: lock and unlock; handles are drawn only
  while unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1422,7 +1422,7 @@ index 28bec89..4638796 100644
 From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:06:25 +0800
-Subject: [PATCH 05/15] Precache the next N songs, with a slider under Settings
+Subject: [PATCH 05/17] Precache the next N songs, with a slider under Settings
  > Experimental (default 2)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1643,7 +1643,7 @@ index ca78f91..c3058dd 100644
 From 6ee8e8c58ed662a5d77547f075167e9442dc8488 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:20:34 +0800
-Subject: [PATCH 06/15] Hold the next button to preview the next song, with
+Subject: [PATCH 06/17] Hold the next button to preview the next song, with
  optional label
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1958,7 +1958,7 @@ index c3058dd..ed477c4 100644
 From 81c8cf84bc6015cfd7e2eaabdaadc3b8a497cfa3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:21:48 +0800
-Subject: [PATCH 07/15] Previewing label: above the title, centred over
+Subject: [PATCH 07/17] Previewing label: above the title, centred over
  play/pause
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2027,7 +2027,7 @@ index 7dfd71d..f6edc99 100644
 From 87ff111251a3a87d7d3582f27ba9bf68396d9aa5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:44:31 +0800
-Subject: [PATCH 08/15] Preview label: a small translucent Previewing pill,
+Subject: [PATCH 08/17] Preview label: a small translucent Previewing pill,
  like the lyrics-type tag
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2124,7 +2124,7 @@ index f6edc99..5186d19 100644
 From 5c325cce6f9fb49001fdde73b5bd1235893202d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:49:53 +0800
-Subject: [PATCH 09/15] Mini player lyrics follow the Fade/Sweep setting
+Subject: [PATCH 09/17] Mini player lyrics follow the Fade/Sweep setting
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2280,7 +2280,7 @@ index a614ff2..e6cec83 100644
 From 28bbe970f7ff39b3a49e893120afb010cae042ec Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:58:39 +0800
-Subject: [PATCH 10/15] Liquid glass for the desktop player: controls, queue
+Subject: [PATCH 10/17] Liquid glass for the desktop player: controls, queue
  and equaliser cards, with switches and intensity
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2787,7 +2787,7 @@ index ed477c4..0fedc6c 100644
 From 327820f4da8c2d7226d0d4125fe609c868a66ce4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:10:07 +0800
-Subject: [PATCH 11/15] Glass: fix outline imports; glass for the search fields
+Subject: [PATCH 11/17] Glass: fix outline imports; glass for the search fields
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2957,7 +2957,7 @@ index 0fedc6c..8a8bd64 100644
 From a6d5ef3e1b1552f17d13ac8b8ac3ea0d22af0cad Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:21:08 +0800
-Subject: [PATCH 12/15] Glass: draw outlines through drawPath
+Subject: [PATCH 12/17] Glass: draw outlines through drawPath
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3019,7 +3019,7 @@ index 5d188ee..ddda43f 100644
 From ac5e8d7a68e35760f1beeeafc0e1a45c305c9fa1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:21:00 +0800
-Subject: [PATCH 13/15] Glass: queue back to normal; search fields get a
+Subject: [PATCH 13/17] Glass: queue back to normal; search fields get a
  clearly visible lit-glass look
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3154,7 +3154,7 @@ index 8a8bd64..c7a658a 100644
 From ed35c2c1026522e92345cfa6a45f72848fc3bec3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:31:14 +0800
-Subject: [PATCH 14/15] Tray popup: sits a little lower; drop the Show
+Subject: [PATCH 14/17] Tray popup: sits a little lower; drop the Show
  OuterTune row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3204,7 +3204,7 @@ index 2076d4c..657f65d 100644
 From 4ec8f1aecfd6323a6ff57883f6750da77aa8b4d3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 17:21:46 +0800
-Subject: [PATCH 15/15] Equaliser: bass and treble dials wait for the equaliser
+Subject: [PATCH 15/17] Equaliser: bass and treble dials wait for the equaliser
  instead of switching it on; balance stays independent
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3250,6 +3250,390 @@ index e43451f..2313fdd 100644
                  color = colourFor(trebleGain, gainRange),
                  textColor = onColour,
                  centeredAt = 0f,
+-- 
+2.43.0
+
+
+From e6f80291e5dc0d3d1ecddc8a548cc48d8bce8f31 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 24 Nov 2026 19:14:51 +0800
+Subject: [PATCH 16/17] Windows: high frequency restoration (harmonic exciter
+ port)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../dd3boh/outertune/desktop/DesktopPlayer.kt |  11 +
+ .../outertune/desktop/HarmonicExciter.kt      | 189 ++++++++++++++++++
+ .../com/dd3boh/outertune/desktop/Main.kt      |   4 +
+ .../com/dd3boh/outertune/desktop/Settings.kt  |   3 +
+ .../dd3boh/outertune/desktop/SettingsPane.kt  |   9 +
+ 5 files changed, 216 insertions(+)
+ create mode 100644 desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HarmonicExciter.kt
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
+index b2830e8..b709ae0 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/DesktopPlayer.kt
+@@ -271,6 +271,9 @@ class DesktopPlayer {
+ 
+     val equalizer = Equalizer()
+ 
++    /** High-frequency restoration for lossy streams, run before the equaliser. */
++    val exciter = HarmonicExciter()
++
+     /**
+      * Dynamics, between the equaliser and the stretcher.
+      *
+@@ -1222,6 +1225,7 @@ class DesktopPlayer {
+                 // thrown away. Carrying that across a jump makes the first moments after a seek ring
+                 // with the passage before it.
+                 equalizer.reset()
++                exciter.reset()
+                 compressor.reset()
+                 timeStretch.reset()
+                 trackMsBase = src.seek(target)
+@@ -1242,6 +1246,13 @@ class DesktopPlayer {
+             // compressor and the output limiter run inside the same pass, in floats - see
+             // Equalizer.process - and so does the normalisation while that pass is running, as
+             // headroom a boost can spend.
++            // Restoration first, on what the codec delivered, so the equaliser and limiter see the
++            // result. Re-planned only when the stream or format changes.
++            if (exciter.enabled) {
++                val details = stream.value
++                exciter.configure(sampleRate, channels, HarmonicExciter.cutoffFor(details?.format, details?.bitrateKbps))
++                exciter.process(pcm, pcm.size, bitsPerSample, channels, bigEndian)
++            }
+             val normalisationDb = if (normalise && trackGain < 1f) -20f * log10(trackGain) else 0f
+             val normalised = equalizer.process(
+                 bytes = pcm,
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HarmonicExciter.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HarmonicExciter.kt
+new file mode 100644
+index 0000000..602aad4
+--- /dev/null
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/HarmonicExciter.kt
+@@ -0,0 +1,189 @@
++/*
++ * Copyright (C) 2026 OuterTune Project
++ *
++ * SPDX-License-Identifier: GPL-3.0
++ */
++
++package com.dd3boh.outertune.desktop
++
++import kotlin.math.PI
++import kotlin.math.abs
++import kotlin.math.cos
++import kotlin.math.roundToLong
++import kotlin.math.sin
++
++/** How much high-frequency restoration to apply. Same steps and amounts as the phone. */
++enum class AudioUpscaling(val label: String, val amount: Float) {
++    Off("Off", 0f),
++    Subtle("Subtle", 0.3f),
++    Balanced("Balanced", 0.5f),
++    Strong("Strong", 0.8f),
++}
++
++/**
++ * High-frequency restoration: puts back the top octave a lossy codec threw away by generating
++ * harmonics of what survived. A port of the phone's `audio/HarmonicExciter.kt`, with the same band
++ * plan and constants, so a setting means the same thing on both.
++ *
++ * The chain: band-limit the input to [cutoff/2, sampleRate/4] (so the second harmonic can never
++ * alias), run it through a biased soft saturator, keep only [cutoff, 0.95 * Nyquist] of the result
++ * and mix it back in at low level. Per-sample, allocation-free, no transform.
++ *
++ * Off by default, and does nothing for lossless or Opus, or when the stream's cutoff leaves no gap.
++ */
++class HarmonicExciter {
++
++    private class Section {
++        var b0 = 1f; var b1 = 0f; var b2 = 0f; var a1 = 0f; var a2 = 0f
++        private var x1 = 0f; private var x2 = 0f; private var y1 = 0f; private var y2 = 0f
++
++        fun process(x: Float): Float {
++            val y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
++            x2 = x1; x1 = x
++            y2 = y1; y1 = if (y.isFinite()) y else 0f
++            return y1
++        }
++
++        fun reset() { x1 = 0f; x2 = 0f; y1 = 0f; y2 = 0f }
++
++        /** RBJ cookbook Butterworth low/high-pass. */
++        fun setPass(freqHz: Float, sampleRate: Int, high: Boolean) {
++            val w0 = 2.0 * PI * freqHz / sampleRate
++            val cosw = cos(w0)
++            val alpha = sin(w0) / (2.0 * Q)
++            val a0 = 1.0 + alpha
++            val nb0: Double; val nb1: Double; val nb2: Double
++            if (high) {
++                nb0 = (1 + cosw) / 2; nb1 = -(1 + cosw); nb2 = (1 + cosw) / 2
++            } else {
++                nb0 = (1 - cosw) / 2; nb1 = 1 - cosw; nb2 = (1 - cosw) / 2
++            }
++            b0 = (nb0 / a0).toFloat(); b1 = (nb1 / a0).toFloat(); b2 = (nb2 / a0).toFloat()
++            a1 = (-2 * cosw / a0).toFloat(); a2 = ((1 - alpha) / a0).toFloat()
++        }
++    }
++
++    @Volatile var enabled = false
++    @Volatile var amount = DEFAULT_AMOUNT
++    @Volatile var evenness = DEFAULT_EVENNESS
++
++    @Volatile private var active = false
++    private var channels = 0
++    private var configuredRate = 0
++    private var configuredCutoff = 0f
++
++    private var inHigh = emptyArray<Array<Section>>()
++    private var inLow = emptyArray<Array<Section>>()
++    private var outHigh = emptyArray<Array<Section>>()
++    private var outLow = emptyArray<Array<Section>>()
++
++    /** Plans the bands for a stream whose content stops at [cutoffHz]. False when there is no gap to fill. */
++    fun configure(sampleRate: Int, channelCount: Int, cutoffHz: Float?): Boolean {
++        if (cutoffHz == null || sampleRate == configuredRate && channelCount == channels &&
++            cutoffHz == configuredCutoff && inHigh.isNotEmpty()
++        ) {
++            if (cutoffHz == null) active = false
++            return active
++        }
++        active = false
++        if (sampleRate <= 0 || channelCount <= 0) return false
++        val nyquist = sampleRate / 2f
++        if (cutoffHz <= 0f || cutoffHz >= nyquist - MIN_GAP_HZ) return false
++        val inLowHz = cutoffHz / 2f
++        val inHighHz = sampleRate / 4f
++        if (inHighHz <= inLowHz * INPUT_BAND_MIN_RATIO) return false
++
++        fun chain(freq: Float, high: Boolean) = Array(channelCount) {
++            Array(SECTIONS) { Section().also { s -> s.setPass(freq, sampleRate, high) } }
++        }
++        inHigh = chain(inLowHz, true)
++        inLow = chain(inHighHz, false)
++        outHigh = chain(cutoffHz, true)
++        outLow = chain(nyquist * CEILING_FRACTION, false)
++        channels = channelCount
++        configuredRate = sampleRate
++        configuredCutoff = cutoffHz
++        active = true
++        return true
++    }
++
++    fun reset() {
++        for (set in arrayOf(inHigh, inLow, outHigh, outLow)) set.forEach { c -> c.forEach { it.reset() } }
++    }
++
++    fun isActive(): Boolean = active && enabled && amount > 0f
++
++    /** Processes one interleaved PCM block in place. Does nothing when inactive. */
++    fun process(bytes: ByteArray, length: Int, bitsPerSample: Int, channelCount: Int, bigEndian: Boolean) {
++        if (!isActive() || channelCount != channels) return
++        val bps = bitsPerSample / 8
++        if (bps !in 1..4) return
++        val peak = (1L shl (bitsPerSample - 1)).toFloat()
++        val maxV = peak.toLong() - 1
++        val gain = amount * WET_TRIM
++        val frames = length / (bps * channelCount)
++        var pos = 0
++        for (f in 0 until frames) {
++            for (c in 0 until channelCount) {
++                val dry = Pcm.readSample(bytes, pos, bps, bigEndian).toFloat() / peak
++                var x = dry
++                for (s in inHigh[c]) x = s.process(x)
++                for (s in inLow[c]) x = s.process(x)
++                x = shape(x)
++                for (s in outHigh[c]) x = s.process(x)
++                for (s in outLow[c]) x = s.process(x)
++                val out = ((dry + x * gain) * peak).roundToLong().coerceIn(-peak.toLong(), maxV)
++                Pcm.writeSample(bytes, pos, bps, bigEndian, out)
++                pos += bps
++            }
++        }
++    }
++
++    private fun shape(x: Float): Float {
++        val bias = evenness.coerceIn(0f, 1f) * MAX_BIAS
++        return softSaturate(x * DRIVE_GAIN + bias) - softSaturate(bias)
++    }
++
++    private fun softSaturate(x: Float) = (1f + MAX_DRIVE) * x / (1f + MAX_DRIVE * abs(x))
++
++    companion object {
++        const val DEFAULT_AMOUNT = 0.5f
++        const val DEFAULT_EVENNESS = 0.8f
++        private const val MAX_DRIVE = 0.6f
++        private const val DRIVE_GAIN = 64f
++        private const val MAX_BIAS = 0.35f
++        private const val WET_TRIM = 0.25f
++        private const val MIN_GAP_HZ = 1_500f
++        private const val INPUT_BAND_MIN_RATIO = 1.2f
++        private const val CEILING_FRACTION = 0.95f
++        private const val Q = 0.7071
++        private const val SECTIONS = 2
++
++        /**
++         * Where a stream's content stops, from the format text this app shows. Null means leave it
++         * alone: lossless, Opus, or anything unrecognised.
++         */
++        fun cutoffFor(format: String?, bitrateKbps: Int?): Float? {
++            val f = format?.lowercase() ?: return null
++            val bps = bitrateKbps?.let { it * 1000 }
++            return when {
++                "flac" in f || "alac" in f || "wav" in f || "pcm" in f || "opus" in f -> null
++                "aac" in f || "m4a" in f || "mp4" in f -> when {
++                    bps == null -> 16_000f
++                    bps >= 250_000 -> 19_000f
++                    bps >= 190_000 -> 18_000f
++                    bps >= 120_000 -> 16_000f
++                    else -> 14_000f
++                }
++                "mp3" in f || "mpeg" in f -> when {
++                    bps == null -> 16_000f
++                    bps >= 300_000 -> 19_000f
++                    bps >= 190_000 -> 18_000f
++                    bps >= 120_000 -> 16_000f
++                    else -> 15_000f
++                }
++                else -> null
++            }
++        }
++    }
++}
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+index d36bbba..1ad8308 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+@@ -1337,6 +1337,10 @@ internal fun App(
+     // closes the old client and builds a new one, so requests already in flight are not moved over;
+     // nothing retries them, which is why this is a setting people change while idle.
+     LaunchedEffect(settings.audioQuality) { player.quality = settings.audioQuality }
++    LaunchedEffect(settings.audioUpscaling) {
++        player.exciter.amount = settings.audioUpscaling.amount
++        player.exciter.enabled = settings.audioUpscaling != AudioUpscaling.Off
++    }
+ 
+     // One check at start-up, and one an hour after that. The interval itself is hours, so polling
+     // faster buys nothing, and a desktop app is left running for days - a start-up-only check would
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+index dcd5819..060c9e8 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Settings.kt
+@@ -164,6 +164,9 @@ class Settings(private val store: SettingsStore) {
+     /** How many upcoming songs are fetched ahead of time. */
+     var precacheCount by int("player.precacheCount", 2)
+ 
++    /** High-frequency restoration for lossy streams - see [HarmonicExciter]. */
++    var audioUpscaling by enum("player.audioUpscaling", AudioUpscaling.Off, AudioUpscaling.entries)
++
+     /** Evens out volume between tracks using YouTube's loudness figure. Only ever turns down. */
+     var audioNormalisation by bool("player.normalise", false)
+ 
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+index c7a658a..19a67f4 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/SettingsPane.kt
+@@ -693,6 +693,15 @@ private fun PlayerSettings(settings: Settings) {
+             description = { it.description },
+             onSelect = { settings.audioQuality = it },
+         )
++        SettingChoice(
++            title = "High frequency restoration",
++            icon = OuterTuneIcons.graphicEq,
++            options = AudioUpscaling.entries,
++            selected = settings.audioUpscaling,
++            label = { it.label },
++            description = { if (it == AudioUpscaling.Off) "Rebuilds the top of the range lossy streaming removes, by generating harmonics of what is left. Lossless and Opus are untouched." else "" },
++            onSelect = { settings.audioUpscaling = it },
++        )
+         SettingSwitch(
+             title = "Audio normalisation",
+             subtitle = "Evens out volume between songs, only ever turning down.",
+-- 
+2.43.0
+
+
+From 2d167f9cba69984e6e14c4d1ebb88a9dd9c924c3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 09:14:29 +0800
+Subject: [PATCH 17/17] Windows: Like and Sleep timer in the player menu; drop
+ stray ( after artist bio
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../kotlin/com/dd3boh/outertune/desktop/ArtistPane.kt  |  5 ++++-
+ .../com/dd3boh/outertune/desktop/NowPlayingScreen.kt   |  3 +++
+ .../kotlin/com/dd3boh/outertune/desktop/PlayerMenu.kt  | 10 ++++++++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/ArtistPane.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/ArtistPane.kt
+index c3c342b..8b7c188 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/ArtistPane.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/ArtistPane.kt
+@@ -220,7 +220,10 @@ fun ArtistPane(
+     val name = page?.artist?.title?.withoutTopic() ?: stored?.name?.withoutTopic()?.ifBlank { null } ?: artist.name
+     val thumbnail = page?.artist?.thumbnail ?: stored?.thumbnail?.ifBlank { null } ?: knownThumbnail
+     // The fetched page's word on the description is final, none included; until then, the kept one.
+-    val description = if (page != null) page.description else stored?.description
++    // YouTube's text is cut at the link run of its "From Wikipedia (url)" credit, which leaves the
++    // opening bracket dangling at the end; the kept copy has it too.
++    val description = (if (page != null) page.description else stored?.description)
++        ?.trimEnd()?.removeSuffix("(")?.trimEnd()
+     val sections = page?.sections.orEmpty()
+         .map { it.copy(items = it.items.visible()) }
+         .filter { it.items.isNotEmpty() }
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt
+index b7bf3c4..7a6cfc2 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/NowPlayingScreen.kt
+@@ -2218,6 +2218,9 @@ private fun ActionButtons(
+                         tint = MaterialTheme.colorScheme.onPrimary,
+                         buttonSize = buttonSize,
+                         iconSize = iconSize,
++                        liked = liked,
++                        onToggleLike = onToggleLike,
++                        onSleepTimer = onSleepTimer,
+                     )
+                 }
+             }
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerMenu.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerMenu.kt
+index 748ac66..452c9a4 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerMenu.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/PlayerMenu.kt
+@@ -71,6 +71,10 @@ fun PlayerOverflowMenu(
+     tint: Color,
+     buttonSize: Dp,
+     iconSize: Dp,
++    /** Like and the sleep timer are title-row buttons that can be taken off the row; the menu keeps them reachable. */
++    liked: Boolean = false,
++    onToggleLike: (() -> Unit)? = null,
++    onSleepTimer: (() -> Unit)? = null,
+ ) {
+     var open by remember { mutableStateOf(false) }
+     var pickingArtist by remember { mutableStateOf(false) }
+@@ -91,6 +95,11 @@ fun PlayerOverflowMenu(
+                 fun tile(label: String, icon: ImageVector, action: (() -> Unit)?) {
+                     if (action != null) add(MenuTile(label, icon, onClick = action))
+                 }
++                tile(
++                    if (liked) "Unlike" else "Like",
++                    if (liked) OuterTuneIcons.favorite else OuterTuneIcons.favoriteBorder,
++                    onToggleLike,
++                )
+                 tile("Start radio", OuterTuneIcons.radio, actions.onStartRadio)
+                 tile("Add to queue", OuterTuneIcons.queueMusicRounded, actions.onAddToQueue)
+                 tile("Add to playlist", OuterTuneIcons.playlistAdd, actions.onAddToPlaylist)
+@@ -113,6 +122,7 @@ fun PlayerOverflowMenu(
+                 tile("Share", OuterTuneIcons.share, actions.onShare)
+                 tile("Lyrics", OuterTuneIcons.lyrics, actions.onToggleLyrics)
+                 tile("Details", OuterTuneIcons.info, actions.onDetails)
++                tile("Sleep timer", OuterTuneIcons.bedtime, onSleepTimer)
+                 tile("Equaliser", OuterTuneIcons.equalizer, actions.onEqualizer)
+             }
+             MenuPanel(
 -- 
 2.43.0
 
