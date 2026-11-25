@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 01/19] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 01/21] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 02/19] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 02/21] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 03/19] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 03/21] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 04/19] Playlists: lock and unlock; handles are drawn only
+Subject: [PATCH 04/21] Playlists: lock and unlock; handles are drawn only
  while unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1422,7 +1422,7 @@ index 28bec89..4638796 100644
 From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:06:25 +0800
-Subject: [PATCH 05/19] Precache the next N songs, with a slider under Settings
+Subject: [PATCH 05/21] Precache the next N songs, with a slider under Settings
  > Experimental (default 2)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1643,7 +1643,7 @@ index ca78f91..c3058dd 100644
 From 6ee8e8c58ed662a5d77547f075167e9442dc8488 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:20:34 +0800
-Subject: [PATCH 06/19] Hold the next button to preview the next song, with
+Subject: [PATCH 06/21] Hold the next button to preview the next song, with
  optional label
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1958,7 +1958,7 @@ index c3058dd..ed477c4 100644
 From 81c8cf84bc6015cfd7e2eaabdaadc3b8a497cfa3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:21:48 +0800
-Subject: [PATCH 07/19] Previewing label: above the title, centred over
+Subject: [PATCH 07/21] Previewing label: above the title, centred over
  play/pause
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2027,7 +2027,7 @@ index 7dfd71d..f6edc99 100644
 From 87ff111251a3a87d7d3582f27ba9bf68396d9aa5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:44:31 +0800
-Subject: [PATCH 08/19] Preview label: a small translucent Previewing pill,
+Subject: [PATCH 08/21] Preview label: a small translucent Previewing pill,
  like the lyrics-type tag
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2124,7 +2124,7 @@ index f6edc99..5186d19 100644
 From 5c325cce6f9fb49001fdde73b5bd1235893202d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:49:53 +0800
-Subject: [PATCH 09/19] Mini player lyrics follow the Fade/Sweep setting
+Subject: [PATCH 09/21] Mini player lyrics follow the Fade/Sweep setting
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2280,7 +2280,7 @@ index a614ff2..e6cec83 100644
 From 28bbe970f7ff39b3a49e893120afb010cae042ec Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:58:39 +0800
-Subject: [PATCH 10/19] Liquid glass for the desktop player: controls, queue
+Subject: [PATCH 10/21] Liquid glass for the desktop player: controls, queue
  and equaliser cards, with switches and intensity
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2787,7 +2787,7 @@ index ed477c4..0fedc6c 100644
 From 327820f4da8c2d7226d0d4125fe609c868a66ce4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:10:07 +0800
-Subject: [PATCH 11/19] Glass: fix outline imports; glass for the search fields
+Subject: [PATCH 11/21] Glass: fix outline imports; glass for the search fields
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2957,7 +2957,7 @@ index 0fedc6c..8a8bd64 100644
 From a6d5ef3e1b1552f17d13ac8b8ac3ea0d22af0cad Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:21:08 +0800
-Subject: [PATCH 12/19] Glass: draw outlines through drawPath
+Subject: [PATCH 12/21] Glass: draw outlines through drawPath
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3019,7 +3019,7 @@ index 5d188ee..ddda43f 100644
 From ac5e8d7a68e35760f1beeeafc0e1a45c305c9fa1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:21:00 +0800
-Subject: [PATCH 13/19] Glass: queue back to normal; search fields get a
+Subject: [PATCH 13/21] Glass: queue back to normal; search fields get a
  clearly visible lit-glass look
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3154,7 +3154,7 @@ index 8a8bd64..c7a658a 100644
 From ed35c2c1026522e92345cfa6a45f72848fc3bec3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:31:14 +0800
-Subject: [PATCH 14/19] Tray popup: sits a little lower; drop the Show
+Subject: [PATCH 14/21] Tray popup: sits a little lower; drop the Show
  OuterTune row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3204,7 +3204,7 @@ index 2076d4c..657f65d 100644
 From 4ec8f1aecfd6323a6ff57883f6750da77aa8b4d3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 17:21:46 +0800
-Subject: [PATCH 15/19] Equaliser: bass and treble dials wait for the equaliser
+Subject: [PATCH 15/21] Equaliser: bass and treble dials wait for the equaliser
  instead of switching it on; balance stays independent
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3257,7 +3257,7 @@ index e43451f..2313fdd 100644
 From e6f80291e5dc0d3d1ecddc8a548cc48d8bce8f31 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 19:14:51 +0800
-Subject: [PATCH 16/19] Windows: high frequency restoration (harmonic exciter
+Subject: [PATCH 16/21] Windows: high frequency restoration (harmonic exciter
  port)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3558,7 +3558,7 @@ index c7a658a..19a67f4 100644
 From 2d167f9cba69984e6e14c4d1ebb88a9dd9c924c3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 09:14:29 +0800
-Subject: [PATCH 17/19] Windows: Like and Sleep timer in the player menu; drop
+Subject: [PATCH 17/21] Windows: Like and Sleep timer in the player menu; drop
  stray ( after artist bio
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3641,7 +3641,7 @@ index 748ac66..452c9a4 100644
 From a0a114ec5e8d77f46347be3242350f618741053f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 09:21:02 +0800
-Subject: [PATCH 18/19] Windows: player menu skips buttons already on the row
+Subject: [PATCH 18/21] Windows: player menu skips buttons already on the row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3737,7 +3737,7 @@ index 452c9a4..51e6264 100644
 From 0a62b890c3df0fb2ca00a986a5048ed87c1bab57 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 17:24:43 +0800
-Subject: [PATCH 19/19] Windows: import playlists from M3U, CSV or text
+Subject: [PATCH 19/21] Windows: import playlists from M3U, CSV or text
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -4117,6 +4117,108 @@ index 733a955..bd0948a 100644
              }
  
              if (grid) {
+-- 
+2.43.0
+
+
+From c0ed424dfe3789bc7be49f3bc346f7df2f4a5e1c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 17:40:21 +0800
+Subject: [PATCH 20/21] Windows media card: always commit the update, thumbnail
+ failures can't blank it, resend once, log failures
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../outertune/desktop/WindowsMediaControls.kt | 36 ++++++++++++++++---
+ 1 file changed, 31 insertions(+), 5 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/WindowsMediaControls.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/WindowsMediaControls.kt
+index 8f8d49c..3f04f6b 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/WindowsMediaControls.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/WindowsMediaControls.kt
+@@ -173,6 +173,7 @@ object WindowsMediaControls {
+         repeat: Int = 0,
+     ) {
+         val show = {
++            val u0 = updater
+             runCatching {
+                 val s = smtc ?: return@runCatching
+                 val u = updater ?: return@runCatching
+@@ -205,18 +206,43 @@ object WindowsMediaControls {
+                         withHString(album.orEmpty()) { call(second.value, MUSIC2_PUT_ALBUM_TITLE, it) }
+                         call(second.value, 2)
+                     }
+-                    val art = thumbnail(artworkUrl)
++                    // The cover is the part most likely to go wrong (a URL Windows can't build a
++                    // reference for), and it used to sit between the title and the Update call - so
++                    // one failure there meant the title and artist, already set, were never shown
++                    // either: a card with controls and nothing else. It is on its own now.
++                    val art = runCatching { thumbnail(artworkUrl) }.onFailure { log("thumbnail", it) }.getOrNull()
+                     // Cleared when there is none, or the last song's cover stays up beside this
+                     // song's title - a local file has no web artwork to offer.
+-                    call(u, UPDATER_PUT_THUMBNAIL, art)
+-                    art?.let { call(it, 2) } // Release: the updater keeps its own reference.
++                    runCatching {
++                        call(u, UPDATER_PUT_THUMBNAIL, art)
++                        art?.let { call(it, 2) } // Release: the updater keeps its own reference.
++                    }.onFailure { log("put thumbnail", it) }
+                 }
+-                call(u, UPDATER_UPDATE)
++            }.onFailure { log("update", it) }
++            // Always committed, whatever was or was not set above.
++            if (u0 != null) {
++                val hr = runCatching { call(u0, UPDATER_UPDATE) }.onFailure { log("Update()", it) }.getOrDefault(-1)
++                if (hr != 0) log("Update() returned 0x${hr.toUInt().toString(16)}", null)
+             }
+             Unit
+         }
+         last = show
+-        if (active) thread.execute(show)
++        if (active) {
++            thread.execute(show)
++            // Windows sometimes drops an update that lands straight after a change of song, which
++            // leaves the card blank until the next one; the same details again a moment later land.
++            thread.execute { Thread.sleep(1_200); if (last === show) show() }
++        }
++    }
++
++    /** Failures here are otherwise silent - the card just stays blank - so they are kept for a bug report. */
++    private fun log(what: String, error: Throwable?) {
++        runCatching {
++            val file = java.io.File(defaultDataDirectory(), "media-controls.log")
++            file.parentFile?.mkdirs()
++            if (file.length() > 64_000) file.delete()
++            file.appendText("${java.time.LocalDateTime.now()} $what${error?.let { ": $it" } ?: ""}\n")
++        }
+     }
+ 
+     private fun thumbnail(url: String?): Pointer? {
+-- 
+2.43.0
+
+
+From 3d19ef53d4d4f398d5dd361a1ae3b591eef12d8a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 22:14:53 +0800
+Subject: [PATCH 21/21] Tray popup: height for one menu row, no blank space
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../src/main/kotlin/com/dd3boh/outertune/desktop/TrayPopup.kt   | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/TrayPopup.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/TrayPopup.kt
+index 657f65d..71cac98 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/TrayPopup.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/TrayPopup.kt
+@@ -941,4 +941,4 @@ internal val TRAY_POPUP_CORNER = 14.dp
+ internal val TRAY_POPUP_MARGIN = 16.dp
+ internal val TRAY_POPUP_HEIGHT =
+     SECTION_PADDING + COVER_SIZE + SEEK_GAP + SEEK_HEIGHT + TIME_ROW_HEIGHT + CONTROLS_HEIGHT +
+-        1.dp + MENU_PADDING + MENU_ROW_HEIGHT * 2 + MENU_PADDING
++        1.dp + MENU_PADDING + MENU_ROW_HEIGHT + MENU_PADDING
 -- 
 2.43.0
 
