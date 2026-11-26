@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 01/21] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 01/22] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 02/21] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 02/22] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 03/21] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 03/22] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 04/21] Playlists: lock and unlock; handles are drawn only
+Subject: [PATCH 04/22] Playlists: lock and unlock; handles are drawn only
  while unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1422,7 +1422,7 @@ index 28bec89..4638796 100644
 From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:06:25 +0800
-Subject: [PATCH 05/21] Precache the next N songs, with a slider under Settings
+Subject: [PATCH 05/22] Precache the next N songs, with a slider under Settings
  > Experimental (default 2)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1643,7 +1643,7 @@ index ca78f91..c3058dd 100644
 From 6ee8e8c58ed662a5d77547f075167e9442dc8488 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:20:34 +0800
-Subject: [PATCH 06/21] Hold the next button to preview the next song, with
+Subject: [PATCH 06/22] Hold the next button to preview the next song, with
  optional label
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1958,7 +1958,7 @@ index c3058dd..ed477c4 100644
 From 81c8cf84bc6015cfd7e2eaabdaadc3b8a497cfa3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:21:48 +0800
-Subject: [PATCH 07/21] Previewing label: above the title, centred over
+Subject: [PATCH 07/22] Previewing label: above the title, centred over
  play/pause
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2027,7 +2027,7 @@ index 7dfd71d..f6edc99 100644
 From 87ff111251a3a87d7d3582f27ba9bf68396d9aa5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:44:31 +0800
-Subject: [PATCH 08/21] Preview label: a small translucent Previewing pill,
+Subject: [PATCH 08/22] Preview label: a small translucent Previewing pill,
  like the lyrics-type tag
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2124,7 +2124,7 @@ index f6edc99..5186d19 100644
 From 5c325cce6f9fb49001fdde73b5bd1235893202d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:49:53 +0800
-Subject: [PATCH 09/21] Mini player lyrics follow the Fade/Sweep setting
+Subject: [PATCH 09/22] Mini player lyrics follow the Fade/Sweep setting
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2280,7 +2280,7 @@ index a614ff2..e6cec83 100644
 From 28bbe970f7ff39b3a49e893120afb010cae042ec Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:58:39 +0800
-Subject: [PATCH 10/21] Liquid glass for the desktop player: controls, queue
+Subject: [PATCH 10/22] Liquid glass for the desktop player: controls, queue
  and equaliser cards, with switches and intensity
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2787,7 +2787,7 @@ index ed477c4..0fedc6c 100644
 From 327820f4da8c2d7226d0d4125fe609c868a66ce4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:10:07 +0800
-Subject: [PATCH 11/21] Glass: fix outline imports; glass for the search fields
+Subject: [PATCH 11/22] Glass: fix outline imports; glass for the search fields
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2957,7 +2957,7 @@ index 0fedc6c..8a8bd64 100644
 From a6d5ef3e1b1552f17d13ac8b8ac3ea0d22af0cad Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:21:08 +0800
-Subject: [PATCH 12/21] Glass: draw outlines through drawPath
+Subject: [PATCH 12/22] Glass: draw outlines through drawPath
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3019,7 +3019,7 @@ index 5d188ee..ddda43f 100644
 From ac5e8d7a68e35760f1beeeafc0e1a45c305c9fa1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:21:00 +0800
-Subject: [PATCH 13/21] Glass: queue back to normal; search fields get a
+Subject: [PATCH 13/22] Glass: queue back to normal; search fields get a
  clearly visible lit-glass look
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3154,7 +3154,7 @@ index 8a8bd64..c7a658a 100644
 From ed35c2c1026522e92345cfa6a45f72848fc3bec3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:31:14 +0800
-Subject: [PATCH 14/21] Tray popup: sits a little lower; drop the Show
+Subject: [PATCH 14/22] Tray popup: sits a little lower; drop the Show
  OuterTune row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3204,7 +3204,7 @@ index 2076d4c..657f65d 100644
 From 4ec8f1aecfd6323a6ff57883f6750da77aa8b4d3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 17:21:46 +0800
-Subject: [PATCH 15/21] Equaliser: bass and treble dials wait for the equaliser
+Subject: [PATCH 15/22] Equaliser: bass and treble dials wait for the equaliser
  instead of switching it on; balance stays independent
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3257,7 +3257,7 @@ index e43451f..2313fdd 100644
 From e6f80291e5dc0d3d1ecddc8a548cc48d8bce8f31 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 19:14:51 +0800
-Subject: [PATCH 16/21] Windows: high frequency restoration (harmonic exciter
+Subject: [PATCH 16/22] Windows: high frequency restoration (harmonic exciter
  port)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3558,7 +3558,7 @@ index c7a658a..19a67f4 100644
 From 2d167f9cba69984e6e14c4d1ebb88a9dd9c924c3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 09:14:29 +0800
-Subject: [PATCH 17/21] Windows: Like and Sleep timer in the player menu; drop
+Subject: [PATCH 17/22] Windows: Like and Sleep timer in the player menu; drop
  stray ( after artist bio
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3641,7 +3641,7 @@ index 748ac66..452c9a4 100644
 From a0a114ec5e8d77f46347be3242350f618741053f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 09:21:02 +0800
-Subject: [PATCH 18/21] Windows: player menu skips buttons already on the row
+Subject: [PATCH 18/22] Windows: player menu skips buttons already on the row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3737,7 +3737,7 @@ index 452c9a4..51e6264 100644
 From 0a62b890c3df0fb2ca00a986a5048ed87c1bab57 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 17:24:43 +0800
-Subject: [PATCH 19/21] Windows: import playlists from M3U, CSV or text
+Subject: [PATCH 19/22] Windows: import playlists from M3U, CSV or text
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -4124,7 +4124,7 @@ index 733a955..bd0948a 100644
 From c0ed424dfe3789bc7be49f3bc346f7df2f4a5e1c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 17:40:21 +0800
-Subject: [PATCH 20/21] Windows media card: always commit the update, thumbnail
+Subject: [PATCH 20/22] Windows media card: always commit the update, thumbnail
  failures can't blank it, resend once, log failures
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -4201,7 +4201,7 @@ index 8f8d49c..3f04f6b 100644
 From 3d19ef53d4d4f398d5dd361a1ae3b591eef12d8a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 22:14:53 +0800
-Subject: [PATCH 21/21] Tray popup: height for one menu row, no blank space
+Subject: [PATCH 21/22] Tray popup: height for one menu row, no blank space
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -4219,6 +4219,339 @@ index 657f65d..71cac98 100644
      SECTION_PADDING + COVER_SIZE + SEEK_GAP + SEEK_HEIGHT + TIME_ROW_HEIGHT + CONTROLS_HEIGHT +
 -        1.dp + MENU_PADDING + MENU_ROW_HEIGHT * 2 + MENU_PADDING
 +        1.dp + MENU_PADDING + MENU_ROW_HEIGHT + MENU_PADDING
+-- 
+2.43.0
+
+
+From 83851d0bb229dbbc3f45252da8361c6ebee2d724 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 26 Nov 2026 12:04:39 +0800
+Subject: [PATCH 22/22] Windows equaliser: per-band frequency, Q and filter
+ type (adds low/high-pass); tempo and pitch follow colour-by-value
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../dd3boh/outertune/desktop/EqResponse.kt    |  24 +++-
+ .../com/dd3boh/outertune/desktop/Equalizer.kt |  31 ++++-
+ .../outertune/desktop/EqualizerPanel.kt       | 125 +++++++++++++++++-
+ .../com/dd3boh/outertune/desktop/Profiles.kt  |   2 +
+ 4 files changed, 174 insertions(+), 8 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqResponse.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqResponse.kt
+index 027835d..0a79846 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqResponse.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqResponse.kt
+@@ -54,7 +54,7 @@ object EqResponse {
+             }
+             var db = 0.0
+             bands.forEach { band ->
+-                if (band.gainDb != 0f) db += bandGainDb(band, hz, sampleRate)
++                if (band.shapesSound) db += bandGainDb(band, hz, sampleRate)
+             }
+             out[i] = db.toFloat()
+         }
+@@ -64,7 +64,7 @@ object EqResponse {
+     /** The whole bank's gain at [hz], in decibels - the sum of every section's. */
+     fun gainAtDb(bands: List<EqBand>, hz: Double, sampleRate: Int): Double {
+         var db = 0.0
+-        bands.forEach { band -> if (band.gainDb != 0f) db += bandGainDb(band, hz, sampleRate) }
++        bands.forEach { band -> if (band.shapesSound) db += bandGainDb(band, hz, sampleRate) }
+         return db
+     }
+ 
+@@ -79,7 +79,7 @@ object EqResponse {
+      * top rather than on its shoulder.
+      */
+     fun peakDb(bands: List<EqBand>, sampleRate: Int): Float {
+-        if (sampleRate <= 0 || bands.none { it.gainDb != 0f }) return 0f
++        if (sampleRate <= 0 || bands.none { it.shapesSound }) return 0f
+         val logLow = ln(PEAK_LOW_HZ)
+         val logHigh = ln(sampleRate / 2.0 * 0.99).coerceAtLeast(logLow + 1.0)
+         val step = (logHigh - logLow) / (PEAK_PROBES - 1)
+@@ -107,7 +107,7 @@ object EqResponse {
+      * anyway, so counting it would only dilute the reading.
+      */
+     fun meanPowerDb(bands: List<EqBand>, sampleRate: Int): Float {
+-        if (sampleRate <= 0 || bands.none { it.gainDb != 0f }) return 0f
++        if (sampleRate <= 0 || bands.none { it.shapesSound }) return 0f
+         val logLow = ln(20.0)
+         val logHigh = ln(minOf(16_000.0, sampleRate / 2.0 * 0.99)).coerceAtLeast(logLow + 1.0)
+         var power = 0.0
+@@ -156,6 +156,22 @@ object EqResponse {
+                 a1 = -2 * ((a - 1) + (a + 1) * cosw0)
+                 a2 = (a + 1) + (a - 1) * cosw0 - sqrtTerm
+             }
++            EqBandType.LOW_PASS -> {
++                b0 = (1 - cosw0) / 2
++                b1 = 1 - cosw0
++                b2 = (1 - cosw0) / 2
++                a0 = 1 + alpha
++                a1 = -2 * cosw0
++                a2 = 1 - alpha
++            }
++            EqBandType.HIGH_PASS -> {
++                b0 = (1 + cosw0) / 2
++                b1 = -(1 + cosw0)
++                b2 = (1 + cosw0) / 2
++                a0 = 1 + alpha
++                a1 = -2 * cosw0
++                a2 = 1 - alpha
++            }
+             EqBandType.HIGH_SHELF -> {
+                 b0 = a * ((a + 1) + (a - 1) * cosw0 + sqrtTerm)
+                 b1 = -2 * a * ((a - 1) + (a + 1) * cosw0)
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Equalizer.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Equalizer.kt
+index 8582ad5..2ba4917 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Equalizer.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Equalizer.kt
+@@ -37,7 +37,13 @@ data class EqBand(
+  * peaking filter gets the centre right and then falls away again exactly where the correction was
+  * supposed to keep going.
+  */
+-enum class EqBandType { PEAKING, LOW_SHELF, HIGH_SHELF }
++enum class EqBandType { PEAKING, LOW_SHELF, HIGH_SHELF, LOW_PASS, HIGH_PASS }
++
++/** Low and high pass filters have no gain; they always shape the sound, so they are never "flat". */
++val EqBandType.isPass: Boolean get() = this == EqBandType.LOW_PASS || this == EqBandType.HIGH_PASS
++
++/** Whether this band changes the sound at all. */
++val EqBand.shapesSound: Boolean get() = type.isPass || gainDb != 0f
+ 
+ /**
+  * A second-order IIR section, and the sample history it needs.
+@@ -143,6 +149,25 @@ private class Biquad {
+         a2 = (na2 / na0).toFloat()
+     }
+ 
++    /** A second-order low-pass or high-pass at [freqHz] with resonance [q] (RBJ cookbook). */
++    fun setPass(freqHz: Float, q: Float, sampleRate: Int, low: Boolean) {
++        if (sampleRate <= 0 || freqHz <= 0f || freqHz >= sampleRate / 2f) {
++            b0 = 1f; b1 = 0f; b2 = 0f; a1 = 0f; a2 = 0f
++            return
++        }
++        val w0 = 2.0 * Math.PI * freqHz / sampleRate
++        val cosw0 = cos(w0)
++        val alpha = sin(w0) / (2.0 * q.coerceAtLeast(0.05f))
++        val na0 = 1.0 + alpha
++        val nb0 = if (low) (1.0 - cosw0) / 2.0 else (1.0 + cosw0) / 2.0
++        val nb1 = if (low) 1.0 - cosw0 else -(1.0 + cosw0)
++        b0 = (nb0 / na0).toFloat()
++        b1 = (nb1 / na0).toFloat()
++        b2 = b0
++        a1 = (-2.0 * cosw0 / na0).toFloat()
++        a2 = ((1.0 - alpha) / na0).toFloat()
++    }
++
+     fun process(x0: Float): Float {
+         val raw = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+ 
+@@ -298,6 +323,8 @@ class Equalizer {
+                         filter.setShelf(band.freqHz, band.gainDb, band.q, sampleRate, low = true)
+                     EqBandType.HIGH_SHELF ->
+                         filter.setShelf(band.freqHz, band.gainDb, band.q, sampleRate, low = false)
++                    EqBandType.LOW_PASS -> filter.setPass(band.freqHz, band.q, sampleRate, low = true)
++                    EqBandType.HIGH_PASS -> filter.setPass(band.freqHz, band.q, sampleRate, low = false)
+                 }
+             }
+         }
+@@ -363,7 +390,7 @@ class Equalizer {
+         // Nothing to do if every band is flat and nothing else is on. Worth checking: it is the
+         // common case, and it saves running the whole cascade over every sample to arrive back
+         // where it started.
+-        val curve = enabled && bands.any { it.gainDb != 0f }
++        val curve = enabled && bands.any { it.shapesSound }
+         val compressing = compressor?.enabled == true
+         if (!curve && !compressing) {
+             wasFlat = true
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqualizerPanel.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqualizerPanel.kt
+index 2313fdd..f10dabc 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqualizerPanel.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/EqualizerPanel.kt
+@@ -58,6 +58,7 @@ import kotlinx.coroutines.launch
+ import androidx.compose.ui.unit.Dp
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
++import kotlin.math.pow
+ import kotlin.math.roundToInt
+ import androidx.compose.ui.graphics.StrokeCap
+ import androidx.compose.ui.geometry.Offset
+@@ -159,6 +160,8 @@ fun EqualizerPanel(
+     var profile by remember { mutableStateOf(store?.activeProfile) }
+     var saved by remember { mutableStateOf(store?.profiles.orEmpty()) }
+     var naming by remember { mutableStateOf(false) }
++    // The band whose frequency / Q / filter type editor is open under the faders, if any.
++    var editingBand by remember { mutableStateOf<Int?>(null) }
+     var newName by remember { mutableStateOf("") }
+ 
+     val builtIn = remember { Equalizer.PRESETS.keys.toList() }
+@@ -392,6 +395,14 @@ fun EqualizerPanel(
+                                 )
+                             }
+                             Text(
++                                // Tapping the label opens the band's editor underneath, as on the phone.
++                                modifier = Modifier
++                                    .clip(RoundedCornerShape(6.dp))
++                                    .clickable { editingBand = if (editingBand == index) null else index }
++                                    .then(
++                                        if (editingBand == index) Modifier.background(bandColour.copy(alpha = 0.25f)) else Modifier
++                                    )
++                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                 // A loaded correction puts bands at 1050Hz or 3300Hz, not at round
+                                 // numbers, so "3k" would label two different bands identically. One decimal
+                                 // above a kilohertz keeps them distinguishable without going to four digits.
+@@ -409,6 +420,18 @@ fun EqualizerPanel(
+                     }
+                 }
+ 
++                editingBand?.takeIf { it in bands.indices }?.let { i ->
++                    Spacer(modifier = Modifier.height(12.dp))
++                    BandEditor(
++                        band = bands[i],
++                        accent = accent,
++                        onColour = onColour,
++                        colourByValue = colourByValue,
++                        onChange = { apply(bands.toMutableList().also { list -> list[i] = it }, persist = false) },
++                        onSettled = { store?.bands = bands },
++                    )
++                }
++
+                 Spacer(modifier = Modifier.height(16.dp))
+ 
+                 // Under the faders, as on the phone: they are what is being set, and this is the
+@@ -1005,7 +1028,7 @@ private fun PlaybackDials(
+             value = tempo,
+             onValueChange = { tempo = it; timeStretch.tempo = it },
+             valueRange = tempoRange,
+-            color = ValueGradient.forValue(tempo, tempoRange),
++            color = colourFor(tempo, tempoRange),
+             textColor = onColour,
+             label = "Tempo",
+             valueLabel = "%.0f%%".format(tempo * 100),
+@@ -1020,7 +1043,7 @@ private fun PlaybackDials(
+             value = pitch,
+             onValueChange = { pitch = it; timeStretch.pitchSemitones = it },
+             valueRange = pitchRange,
+-            color = ValueGradient.forValue(pitch, pitchRange),
++            color = colourFor(pitch, pitchRange),
+             textColor = onColour,
+             label = "Pitch",
+             valueLabel = "%+.1f st".format(pitch),
+@@ -1051,3 +1074,101 @@ private fun PlaybackDials(
+ private fun Modifier.rotateVertical(length: Dp): Modifier = this
+     .requiredWidth(length)
+     .graphicsLayer { rotationZ = -90f }
++
++
++private fun bandTypeLabel(type: EqBandType) = when (type) {
++    EqBandType.PEAKING -> "Peak"
++    EqBandType.LOW_SHELF -> "Low shelf"
++    EqBandType.HIGH_SHELF -> "High shelf"
++    EqBandType.LOW_PASS -> "Low-pass"
++    EqBandType.HIGH_PASS -> "High-pass"
++}
++
++/**
++ * The advanced editor for one band: frequency, Q and filter type - the phone's band editor.
++ *
++ * Frequency is driven in log space, because a linear 16Hz-20kHz slider would spend nearly all its
++ * travel above 2kHz. Both sliders take the by-value colour when that option is on.
++ */
++@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
++@Composable
++private fun BandEditor(
++    band: EqBand,
++    accent: Color,
++    onColour: Color,
++    colourByValue: Boolean,
++    onChange: (EqBand) -> Unit,
++    onSettled: () -> Unit,
++) {
++    val freqRange = kotlin.math.log10(MIN_BAND_HZ)..kotlin.math.log10(MAX_BAND_HZ)
++    val qRange = MIN_BAND_Q..MAX_BAND_Q
++    fun colourFor(value: Float, range: ClosedFloatingPointRange<Float>) =
++        if (colourByValue) ValueGradient.forValue(value, range) else accent
++    val freqColour = colourFor(kotlin.math.log10(band.freqHz), freqRange)
++    val qColour = colourFor(band.q, qRange)
++    fun slider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, colour: Color, onValue: (Float) -> Unit, modifier: Modifier) =
++        @Composable {
++            Column(modifier = modifier) {
++                Text(label, style = MaterialTheme.typography.labelMedium, color = onColour.copy(alpha = 0.85f))
++                Slider(
++                    value = value,
++                    onValueChange = onValue,
++                    onValueChangeFinished = onSettled,
++                    valueRange = range,
++                    colors = SliderDefaults.colors(
++                        thumbColor = colour,
++                        activeTrackColor = colour,
++                        inactiveTrackColor = onColour.copy(alpha = 0.18f),
++                    ),
++                )
++            }
++        }
++
++    Column(
++        verticalArrangement = Arrangement.spacedBy(8.dp),
++        modifier = Modifier
++            .fillMaxWidth()
++            .clip(RoundedCornerShape(12.dp))
++            .background(onColour.copy(alpha = 0.06f))
++            .padding(12.dp),
++    ) {
++        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
++            slider(
++                "Frequency: " + if (band.freqHz >= 1000f) "%.2f kHz".format(band.freqHz / 1000f) else "${band.freqHz.roundToInt()} Hz",
++                kotlin.math.log10(band.freqHz), freqRange, freqColour,
++                { onChange(band.copy(freqHz = 10f.pow(it).coerceIn(MIN_BAND_HZ, MAX_BAND_HZ))) },
++                Modifier.weight(1f),
++            )()
++            slider(
++                "Q: %.2f".format(band.q), band.q, qRange, qColour,
++                { onChange(band.copy(q = ((it * 100f).roundToInt() / 100f).coerceIn(MIN_BAND_Q, MAX_BAND_Q))) },
++                Modifier.weight(1f),
++            )()
++        }
++        Text("Filter type", style = MaterialTheme.typography.labelMedium, color = onColour.copy(alpha = 0.7f))
++        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++            EqBandType.entries.forEach { type ->
++                FilterChip(
++                    selected = band.type == type,
++                    onClick = {
++                        onChange(band.copy(type = type))
++                        onSettled()
++                    },
++                    label = { Text(bandTypeLabel(type)) },
++                )
++            }
++        }
++        if (band.type.isPass) {
++            Text(
++                "Low-pass and high-pass filters have no gain - the fader for this band does nothing.",
++                style = MaterialTheme.typography.bodySmall,
++                color = onColour.copy(alpha = 0.55f),
++            )
++        }
++    }
++}
++
++private const val MIN_BAND_HZ = 16f
++private const val MAX_BAND_HZ = 20_000f
++private const val MIN_BAND_Q = 0.1f
++private const val MAX_BAND_Q = 10f
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt
+index 3628189..ad908ab 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Profiles.kt
+@@ -234,6 +234,8 @@ object Profiles {
+                     val type = when (o["type"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
+                         "low_shelf", "lowshelf" -> EqBandType.LOW_SHELF
+                         "high_shelf", "highshelf" -> EqBandType.HIGH_SHELF
++                        "low_pass", "lowpass" -> EqBandType.LOW_PASS
++                        "high_pass", "highpass" -> EqBandType.HIGH_PASS
+                         else -> EqBandType.PEAKING
+                     }
+                     if (!freq.isFinite() || freq <= 0f || !gain.isFinite() || !q.isFinite() || q <= 0f) null
 -- 
 2.43.0
 
