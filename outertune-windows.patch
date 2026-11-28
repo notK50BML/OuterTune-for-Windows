@@ -1,7 +1,7 @@
 From 998347b636c46256294e03d224e08a67d55c80e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:05:03 +0800
-Subject: [PATCH 01/25] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
+Subject: [PATCH 01/26] Lyrics: YouLy+ (LyricsPlus) and LRCLIB word-synced
  providers, cleaned search title
 
 Shared modules: LRCLIB's Lyricsfile reader, the LyricsPlus client, BetterLyrics host fallback
@@ -766,7 +766,7 @@ index 35e4ca2..2ab36fe 100644
 From e095323119b0b6d35f9ab009c525a033019d70d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:06:25 +0800
-Subject: [PATCH 02/25] Cloud playlists: make a playlist on the YouTube Music
+Subject: [PATCH 02/26] Cloud playlists: make a playlist on the YouTube Music
  account, kept in step from here
 
 A playlist can be made on the account from the New playlist and Add to playlist dialogs
@@ -1196,7 +1196,7 @@ index 9056d86..d39f56e 100644
 From d03e43b854f329715fa116c0e77828ac582215c7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:53:33 +0800
-Subject: [PATCH 03/25] Cloud playlists: send a dragged song's new place to the
+Subject: [PATCH 03/26] Cloud playlists: send a dragged song's new place to the
  account
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1265,7 +1265,7 @@ index 52aaf60..21edc39 100644
 From d92bf3d5cdceb3dd3e367645d73b46fa600faa42 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 18:59:10 +0800
-Subject: [PATCH 04/25] Playlists: lock and unlock; handles are drawn only
+Subject: [PATCH 04/26] Playlists: lock and unlock; handles are drawn only
  while unlocked
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1422,7 +1422,7 @@ index 28bec89..4638796 100644
 From f3734536006fa77483a1d82cde747f5a678f9b16 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:06:25 +0800
-Subject: [PATCH 05/25] Precache the next N songs, with a slider under Settings
+Subject: [PATCH 05/26] Precache the next N songs, with a slider under Settings
  > Experimental (default 2)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1643,7 +1643,7 @@ index ca78f91..c3058dd 100644
 From 6ee8e8c58ed662a5d77547f075167e9442dc8488 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 22 Nov 2026 22:20:34 +0800
-Subject: [PATCH 06/25] Hold the next button to preview the next song, with
+Subject: [PATCH 06/26] Hold the next button to preview the next song, with
  optional label
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -1958,7 +1958,7 @@ index c3058dd..ed477c4 100644
 From 81c8cf84bc6015cfd7e2eaabdaadc3b8a497cfa3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:21:48 +0800
-Subject: [PATCH 07/25] Previewing label: above the title, centred over
+Subject: [PATCH 07/26] Previewing label: above the title, centred over
  play/pause
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2027,7 +2027,7 @@ index 7dfd71d..f6edc99 100644
 From 87ff111251a3a87d7d3582f27ba9bf68396d9aa5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:44:31 +0800
-Subject: [PATCH 08/25] Preview label: a small translucent Previewing pill,
+Subject: [PATCH 08/26] Preview label: a small translucent Previewing pill,
  like the lyrics-type tag
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2124,7 +2124,7 @@ index f6edc99..5186d19 100644
 From 5c325cce6f9fb49001fdde73b5bd1235893202d1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:49:53 +0800
-Subject: [PATCH 09/25] Mini player lyrics follow the Fade/Sweep setting
+Subject: [PATCH 09/26] Mini player lyrics follow the Fade/Sweep setting
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2280,7 +2280,7 @@ index a614ff2..e6cec83 100644
 From 28bbe970f7ff39b3a49e893120afb010cae042ec Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 10:58:39 +0800
-Subject: [PATCH 10/25] Liquid glass for the desktop player: controls, queue
+Subject: [PATCH 10/26] Liquid glass for the desktop player: controls, queue
  and equaliser cards, with switches and intensity
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -2787,7 +2787,7 @@ index ed477c4..0fedc6c 100644
 From 327820f4da8c2d7226d0d4125fe609c868a66ce4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:10:07 +0800
-Subject: [PATCH 11/25] Glass: fix outline imports; glass for the search fields
+Subject: [PATCH 11/26] Glass: fix outline imports; glass for the search fields
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -2957,7 +2957,7 @@ index 0fedc6c..8a8bd64 100644
 From a6d5ef3e1b1552f17d13ac8b8ac3ea0d22af0cad Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 23 Nov 2026 11:21:08 +0800
-Subject: [PATCH 12/25] Glass: draw outlines through drawPath
+Subject: [PATCH 12/26] Glass: draw outlines through drawPath
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3019,7 +3019,7 @@ index 5d188ee..ddda43f 100644
 From ac5e8d7a68e35760f1beeeafc0e1a45c305c9fa1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:21:00 +0800
-Subject: [PATCH 13/25] Glass: queue back to normal; search fields get a
+Subject: [PATCH 13/26] Glass: queue back to normal; search fields get a
  clearly visible lit-glass look
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3154,7 +3154,7 @@ index 8a8bd64..c7a658a 100644
 From ed35c2c1026522e92345cfa6a45f72848fc3bec3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 11:31:14 +0800
-Subject: [PATCH 14/25] Tray popup: sits a little lower; drop the Show
+Subject: [PATCH 14/26] Tray popup: sits a little lower; drop the Show
  OuterTune row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3204,7 +3204,7 @@ index 2076d4c..657f65d 100644
 From 4ec8f1aecfd6323a6ff57883f6750da77aa8b4d3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 17:21:46 +0800
-Subject: [PATCH 15/25] Equaliser: bass and treble dials wait for the equaliser
+Subject: [PATCH 15/26] Equaliser: bass and treble dials wait for the equaliser
  instead of switching it on; balance stays independent
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3257,7 +3257,7 @@ index e43451f..2313fdd 100644
 From e6f80291e5dc0d3d1ecddc8a548cc48d8bce8f31 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 24 Nov 2026 19:14:51 +0800
-Subject: [PATCH 16/25] Windows: high frequency restoration (harmonic exciter
+Subject: [PATCH 16/26] Windows: high frequency restoration (harmonic exciter
  port)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3558,7 +3558,7 @@ index c7a658a..19a67f4 100644
 From 2d167f9cba69984e6e14c4d1ebb88a9dd9c924c3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 09:14:29 +0800
-Subject: [PATCH 17/25] Windows: Like and Sleep timer in the player menu; drop
+Subject: [PATCH 17/26] Windows: Like and Sleep timer in the player menu; drop
  stray ( after artist bio
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -3641,7 +3641,7 @@ index 748ac66..452c9a4 100644
 From a0a114ec5e8d77f46347be3242350f618741053f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 09:21:02 +0800
-Subject: [PATCH 18/25] Windows: player menu skips buttons already on the row
+Subject: [PATCH 18/26] Windows: player menu skips buttons already on the row
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -3737,7 +3737,7 @@ index 452c9a4..51e6264 100644
 From 0a62b890c3df0fb2ca00a986a5048ed87c1bab57 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 17:24:43 +0800
-Subject: [PATCH 19/25] Windows: import playlists from M3U, CSV or text
+Subject: [PATCH 19/26] Windows: import playlists from M3U, CSV or text
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -4124,7 +4124,7 @@ index 733a955..bd0948a 100644
 From c0ed424dfe3789bc7be49f3bc346f7df2f4a5e1c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 17:40:21 +0800
-Subject: [PATCH 20/25] Windows media card: always commit the update, thumbnail
+Subject: [PATCH 20/26] Windows media card: always commit the update, thumbnail
  failures can't blank it, resend once, log failures
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -4201,7 +4201,7 @@ index 8f8d49c..3f04f6b 100644
 From 3d19ef53d4d4f398d5dd361a1ae3b591eef12d8a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 25 Nov 2026 22:14:53 +0800
-Subject: [PATCH 21/25] Tray popup: height for one menu row, no blank space
+Subject: [PATCH 21/26] Tray popup: height for one menu row, no blank space
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
@@ -4226,7 +4226,7 @@ index 657f65d..71cac98 100644
 From 83851d0bb229dbbc3f45252da8361c6ebee2d724 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 26 Nov 2026 12:04:39 +0800
-Subject: [PATCH 22/25] Windows equaliser: per-band frequency, Q and filter
+Subject: [PATCH 22/26] Windows equaliser: per-band frequency, Q and filter
  type (adds low/high-pass); tempo and pitch follow colour-by-value
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -4559,7 +4559,7 @@ index 3628189..ad908ab 100644
 From b0ea42177a345b29db1fd54358408839895d3e9c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 26 Nov 2026 20:26:29 +0800
-Subject: [PATCH 23/25] Windows EQ editor: wheel on frequency/Q sliders; Q
+Subject: [PATCH 23/26] Windows EQ editor: wheel on frequency/Q sliders; Q
  colour green at 1.0 (log scale)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -4630,7 +4630,7 @@ index f10dabc..c35428e 100644
 From e6b724f4ea354d8ba74b66671aaeb206a464d1bc Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 28 Nov 2026 12:40:57 +0800
-Subject: [PATCH 24/25] Windows: search source button (YouTube Music / Library
+Subject: [PATCH 24/26] Windows: search source button (YouTube Music / Library
  / Soulseek) and Soulseek client groundwork
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -5110,7 +5110,7 @@ index 0000000..4617559
 From aa17aceeecbb1b98c53ad95fdd8a270404aadbff Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 28 Nov 2026 12:44:52 +0800
-Subject: [PATCH 25/25] Soulseek search: Songs/Albums/Artists views and quality
+Subject: [PATCH 25/26] Soulseek search: Songs/Albums/Artists views and quality
  filters over the results
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
@@ -5331,6 +5331,53 @@ index 4617559..1aedb8d 100644
 +        )
 +    }
 +}
+-- 
+2.43.0
+
+
+From c168ef7f3d50ba9b3de191bd893da75346f40eb0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 28 Nov 2026 14:20:54 +0800
+Subject: [PATCH 26/26] Fix: declare the Soulseek source reset after the tab
+ state it reads
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013jYn4VRuj8hDnUMoGaHYVa
+---
+ .../kotlin/com/dd3boh/outertune/desktop/Main.kt     | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+index 2d1bad1..d52f49a 100644
+--- a/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
++++ b/desktop/src/main/kotlin/com/dd3boh/outertune/desktop/Main.kt
+@@ -458,12 +458,6 @@ internal fun App(
+     var sourceBeforeAuto by remember { mutableStateOf(SearchSource.YouTubeMusic) }
+     // The text a "Library" search hands to the library pane's own filter.
+     var libraryFilter by remember { mutableStateOf("") }
+-    LaunchedEffect(tab) {
+-        if (tab != NavTab.LocalFiles && soulseekAutoTab != null) {
+-            if (searchSource == SearchSource.Soulseek) searchSource = sourceBeforeAuto
+-            soulseekAutoTab = null
+-        }
+-    }
+     // Whether the suggestions are open. Not the same as the box having focus: clicking anything in
+     // the panel takes focus off the box, and closing on that shut the panel before the click
+     // landed. Opened by focusing or typing; closed by Escape, a search, opening a result, or a
+@@ -588,6 +582,13 @@ internal fun App(
+     // Which section the navigation rail has selected. One value rather than a flag per pane, so two
+     // panes can never both think they are showing.
+     var tab by remember { mutableStateOf(settings.startTab) }
++    // Leaving Local files puts back the search source that clicking into the bar there replaced.
++    LaunchedEffect(tab) {
++        if (tab != NavTab.LocalFiles && soulseekAutoTab != null) {
++            if (searchSource == SearchSource.Soulseek) searchSource = sourceBeforeAuto
++            soulseekAutoTab = null
++        }
++    }
+     // A tab switched off while it is open hands over to the first one still on.
+     LaunchedEffect(settings.tabs) {
+         val tabs = NavTab.decode(settings.tabs)
 -- 
 2.43.0
 
